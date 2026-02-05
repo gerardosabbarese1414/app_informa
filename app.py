@@ -1,6 +1,6 @@
 import streamlit as st
-from auth import login, register
 from styles import load_styles
+from auth import login, register
 from pages import dashboard, month_calendar, weekly_plan_page
 
 load_styles()
@@ -24,9 +24,11 @@ if "user_id" not in st.session_state:
         email2 = st.text_input("Nuova email")
         password2 = st.text_input("Nuova password", type="password")
         if st.button("Registrati"):
-            register(email2, password2)
-            st.success("Account creato, ora fai login")
-
+            try:
+                register(email2, password2)
+                st.success("Account creato ✅ Ora fai login")
+            except Exception:
+                st.error("Email già usata o errore creazione account")
 else:
     st.sidebar.title("Menu")
     page = st.sidebar.radio("", ["Dashboard", "Calendario (mese)", "Piano settimanale"])
