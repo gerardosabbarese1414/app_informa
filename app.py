@@ -1,10 +1,10 @@
 import streamlit as st
 from auth import login, register
-from pages import dashboard, calendar, weekly_plan
 from styles import load_styles
+from pages import dashboard, month_calendar, weekly_plan_page
 
 load_styles()
-st.title("💪 Fitness AI")
+st.title("💪 InForma — Fitness AI")
 
 if "user_id" not in st.session_state:
     tab1, tab2 = st.tabs(["Login", "Registrati"])
@@ -13,32 +13,30 @@ if "user_id" not in st.session_state:
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
         if st.button("Login"):
-            user_id = login(email, password)
-            if user_id:
-                st.session_state.user_id = user_id
+            uid = login(email, password)
+            if uid:
+                st.session_state.user_id = uid
                 st.rerun()
             else:
                 st.error("Credenziali errate")
 
     with tab2:
-        email = st.text_input("Nuova email")
-        password = st.text_input("Nuova password", type="password")
+        email2 = st.text_input("Nuova email")
+        password2 = st.text_input("Nuova password", type="password")
         if st.button("Registrati"):
-            register(email, password)
+            register(email2, password2)
             st.success("Account creato, ora fai login")
 
 else:
-    page = st.sidebar.radio(
-        "Menu",
-        ["Dashboard", "Calendario", "Piano Settimanale"]
-    )
+    st.sidebar.title("Menu")
+    page = st.sidebar.radio("", ["Dashboard", "Calendario (mese)", "Piano settimanale"])
 
     if page == "Dashboard":
         dashboard(st.session_state.user_id)
-    elif page == "Calendario":
-        calendar(st.session_state.user_id)
+    elif page == "Calendario (mese)":
+        month_calendar(st.session_state.user_id)
     else:
-        weekly_plan(st.session_state.user_id)
+        weekly_plan_page(st.session_state.user_id)
 
     if st.sidebar.button("Logout"):
         del st.session_state.user_id
