@@ -16,12 +16,28 @@ def init_db():
     """)
 
     c.execute("""
+    CREATE TABLE IF NOT EXISTS user_profile (
+        user_id INTEGER PRIMARY KEY,
+        start_weight REAL,
+        height_cm REAL,
+        sex TEXT,
+        age INTEGER,
+        body_fat_pct REAL,
+        lean_mass_kg REAL,
+        activity_level TEXT,
+        goal_type TEXT,
+        goal_weight REAL,
+        goal_date TEXT,
+        updated_at TEXT
+    )
+    """)
+
+    c.execute("""
     CREATE TABLE IF NOT EXISTS day_logs (
-        user_id INTEGER NOT NULL,
-        date TEXT NOT NULL,
+        user_id INTEGER,
+        date TEXT,
         morning_weight REAL,
         is_closed INTEGER DEFAULT 0,
-        notes TEXT,
         PRIMARY KEY (user_id, date)
     )
     """)
@@ -29,8 +45,8 @@ def init_db():
     c.execute("""
     CREATE TABLE IF NOT EXISTS meals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        date TEXT NOT NULL,
+        user_id INTEGER,
+        date TEXT,
         time TEXT,
         description TEXT,
         calories REAL,
@@ -41,21 +57,22 @@ def init_db():
     c.execute("""
     CREATE TABLE IF NOT EXISTS workouts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        date TEXT NOT NULL,
+        user_id INTEGER,
+        date TEXT,
         time TEXT,
-        activity TEXT,
-        duration_min INTEGER,
-        calories_burned REAL
+        description TEXT,
+        calories_burned REAL,
+        raw_json TEXT
     )
     """)
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS daily_summaries (
-        user_id INTEGER NOT NULL,
-        date TEXT NOT NULL,
+        user_id INTEGER,
+        date TEXT,
         calories_in REAL,
         calories_out REAL,
+        rest_calories REAL,
         net_calories REAL,
         PRIMARY KEY (user_id, date)
     )
@@ -63,19 +80,14 @@ def init_db():
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS weekly_plan (
-        user_id INTEGER NOT NULL,
-        iso_year INTEGER NOT NULL,
-        iso_week INTEGER NOT NULL,
+        user_id INTEGER,
+        iso_year INTEGER,
+        iso_week INTEGER,
         content TEXT,
         created_at TEXT,
         PRIMARY KEY (user_id, iso_year, iso_week)
     )
     """)
-
-    c.execute("CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meals(user_id, date)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_workouts_user_date ON workouts(user_id, date)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_daylogs_user_date ON day_logs(user_id, date)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_summ_user_date ON daily_summaries(user_id, date)")
 
     conn.commit()
 

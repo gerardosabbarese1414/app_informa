@@ -1,45 +1,26 @@
 import streamlit as st
-from styles import load_styles
 from auth import login, register
-from pages import dashboard, month_calendar, weekly_plan_page
+from pages import calendar_page
+from profile import profile_page, get_profile
 
-load_styles()
-st.title("💪 InForma — Fitness AI")
+st.title("InForma")
 
-if "user_id" not in st.session_state:
-    tab1, tab2 = st.tabs(["Login", "Registrati"])
-
-    with tab1:
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
-        if st.button("Login"):
-            uid = login(email, password)
-            if uid:
-                st.session_state.user_id = uid
-                st.rerun()
-            else:
-                st.error("Credenziali errate")
-
-    with tab2:
-        email2 = st.text_input("Nuova email")
-        password2 = st.text_input("Nuova password", type="password")
-        if st.button("Registrati"):
-            try:
-                register(email2, password2)
-                st.success("Account creato ✅ Ora fai login")
-            except Exception:
-                st.error("Email già usata o errore creazione account")
+if "uid" not in st.session_state:
+    email = st.text_input("Email")
+    pwd = st.text_input("Password", type="password")
+    if st.button("Login"):
+        uid = login(email,pwd)
+        if uid: st.session_state.uid = uid; st.rerun()
+    if st.button("Registrati"):
+        register(email,pwd)
+        st.success("Creato")
 else:
-    st.sidebar.title("Menu")
-    page = st.sidebar.radio("", ["Dashboard", "Calendario (mese)", "Piano settimanale"])
+    uid = st.session_state.uid
+    if not get_profile(uid):
+        profile_page(uid)
+        st.stop()
 
-    if page == "Dashboard":
-        dashboard(st.session_state.user_id)
-    elif page == "Calendario (mese)":
-        month_calendar(st.session_state.user_id)
-    else:
-        weekly_plan_page(st.session_state.user_id)
-
-    if st.sidebar.button("Logout"):
-        del st.session_state.user_id
-        st.rerun()
+    page = st.sidebar.radio("Menu", ["Calendario","Profilo","Logout"])
+    if page=="Calendario": calendar_page(uid)
+    if page=="Profilo": profile_page(uid)
+    if page=="Logout": del st.session_state.uid; st.rerun()
