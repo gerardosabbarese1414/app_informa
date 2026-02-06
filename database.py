@@ -83,7 +83,7 @@ def _create_tables():
     )
     """)
 
-    # ✅ Schema “nuovo” atteso dal codice
+    # Schema “nuovo” atteso dal codice
     c.execute("""
     CREATE TABLE IF NOT EXISTS daily_summaries (
         user_id INTEGER NOT NULL,
@@ -108,31 +108,44 @@ def _create_tables():
     )
     """)
 
+    # ✅ NUOVO: eventi pianificati (planner)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS planned_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        time TEXT NOT NULL,
+        kind TEXT NOT NULL,            -- 'meal' | 'workout'
+        title TEXT NOT NULL,
+        expected_calories REAL,        -- per meal: kcal previste; per workout: kcal bruciate previste
+        duration_min INTEGER,          -- solo workout
+        notes TEXT,
+        status TEXT DEFAULT 'planned', -- planned|done|modified|skipped
+        linked_actual_id INTEGER       -- id del meal/workout reale creato quando spunti "fatto"
+    )
+    """)
+
     # indici
     c.execute("CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meals(user_id, date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_workouts_user_date ON workouts(user_id, date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_summ_user_date ON daily_summaries(user_id, date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_daylogs_user_date ON day_logs(user_id, date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_planned_user_date ON planned_events(user_id, date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_planned_user_dt ON planned_events(user_id, date, time)")
 
     conn.commit()
 
 
 def _migrate_daily_summaries_if_needed():
-    """
-    Se esiste daily_summaries con schema vecchio (es. colonne diverse),
-    la migra a schema nuovo senza perdere i dati “compatibili”.
-    """
     if not _table_exists("daily_summaries"):
         return
 
     current = set(_cols("daily_summaries"))
     required = {"user_id", "date", "calories_in", "rest_calories", "workout_calories", "calories_out", "net_calories"}
 
-    # Se già ok, niente da fare
     if required.issubset(current):
         return
 
-    # Creiamo una tabella nuova con schema corretto
     conn.execute("""
     CREATE TABLE IF NOT EXISTS daily_summaries_new (
         user_id INTEGER NOT NULL,
@@ -146,12 +159,9 @@ def _migrate_daily_summaries_if_needed():
     )
     """)
 
-    # Prepara query di copia “intelligente”
-    # Mappiamo vecchie colonne se presenti: net -> net_calories
     cols_old = _cols("daily_summaries")
     has_net = "net" in cols_old and "net_calories" not in cols_old
 
-    # Costruzione SELECT
     select_parts = [
         "user_id",
         "date",
@@ -169,17 +179,14 @@ def _migrate_daily_summaries_if_needed():
 
     select_sql = "SELECT " + ", ".join(select_parts) + " FROM daily_summaries"
 
-    # Copia dati
     conn.execute(f"""
     INSERT OR REPLACE INTO daily_summaries_new
       (user_id, date, calories_in, rest_calories, workout_calories, calories_out, net_calories)
     {select_sql}
     """)
 
-    # Rimpiazzo tabella
     conn.execute("DROP TABLE daily_summaries")
     conn.execute("ALTER TABLE daily_summaries_new RENAME TO daily_summaries")
-
     conn.commit()
 
 
