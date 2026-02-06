@@ -2,28 +2,39 @@ import streamlit as st
 from datetime import date, datetime
 from database import conn
 
-def get_profile(uid: int):
+def get_profile(user_id: int) -> dict | None:
     row = conn.execute("""
-        SELECT user_id, start_weight, height_cm, sex, age,
-               body_fat_pct, lean_mass_kg, activity_level,
-               goal_type, goal_weight, goal_date, updated_at
-        FROM user_profile
-        WHERE user_id=?
-    """, (uid,)).fetchone()
-
+        SELECT start_weight, height_cm, sex, age, body_fat_pct, lean_mass_kg,
+               activity_level, goal_type, goal_weight, goal_date
+        FROM user_profile WHERE user_id=?
+    """, (user_id,)).fetchone()
     if not row:
         return None
+    return {
+        "start_weight": row[0],
+        "height_cm": row[1],
+        "sex": row[2],
+        "age": row[3],
+        "body_fat_pct": row[4],
+        "lean_mass_kg": row[5],
+        "activity_level": row[6],
+        "goal_type": row[7],
+        "goal_weight": row[8],
+        "goal_date": row[9],
+    }
 
-    keys = ["user_id","start_weight","height_cm","sex","age",
-            "body_fat_pct","lean_mass_kg","activity_level",
-            "goal_type","goal_weight","goal_date","updated_at"]
-    return dict(zip(keys, row))
+def profile_complete(p: dict | None) -> bool:
+    if not p:
+        return False
+    required = ["start_weight", "height_cm", "sex", "age", "activity_level", "goal_type", "goal_date"]
+    return all(p.get(k) not in (None, "", 0) for k in required)
 
-def profile_page(uid: int):
+def profile_page(user_id: int):
     st.header("👤 Profilo")
 
-    p = get_profile(uid) or {}
+    p = get_profile(user_id) or {}
 
+    st.subheader("Dati base")
     start_weight = st.number_input("Peso di partenza (kg)", value=float(p.get("start_weight") or 0.0), step=0.1)
     height_cm = st.number_input("Altezza (cm)", value=float(p.get("height_cm") or 0.0), step=1.0)
 
@@ -33,15 +44,15 @@ def profile_page(uid: int):
     with c2:
         age = st.number_input("Età", min_value=10, max_value=100, value=int(p.get("age") or 25), step=1)
 
-    st.subheader("Composizione corporea (opzionale)")
+    st.subheader("Composizione (opzionale)")
     body_fat_pct = st.number_input("Massa grassa (%)", value=float(p.get("body_fat_pct") or 0.0), step=0.1)
     lean_mass_kg = st.number_input("Massa magra (kg)", value=float(p.get("lean_mass_kg") or 0.0), step=0.1)
 
     st.subheader("Stile di vita")
     activity_level = st.selectbox(
-        "Livello attività",
+        "Livello attività (per TDEE)",
         ["sedentario", "leggero", "moderato", "alto"],
-        index=["sedentario","leggero","moderato","alto"].index((p.get("activity_level") or "leggero"))
+        index=["sedentario","leggero","moderato","alto"].index((p.get("activity_level") or "leggero").lower())
     )
 
     st.subheader("🎯 Obiettivo")
@@ -51,9 +62,8 @@ def profile_page(uid: int):
         index=["Dimagrimento","Mantenimento","Massa muscolare"].index((p.get("goal_type") or "Dimagrimento"))
     )
     goal_weight = st.number_input("Peso obiettivo (kg) (opzionale)", value=float(p.get("goal_weight") or 0.0), step=0.1)
-
-    default_date = date.fromisoformat(p["goal_date"]) if p.get("goal_date") else date.today()
-    goal_date = st.date_input("Data obiettivo", value=default_date)
+    default_goal_date = date.fromisoformat(p["goal_date"]) if p.get("goal_date") else date.today()
+    goal_date = st.date_input("Entro quale data?", value=default_goal_date)
 
     if st.button("💾 Salva profilo"):
         conn.execute("""
@@ -75,7 +85,7 @@ def profile_page(uid: int):
               goal_date=excluded.goal_date,
               updated_at=excluded.updated_at
         """, (
-            uid,
+            user_id,
             start_weight if start_weight > 0 else None,
             height_cm if height_cm > 0 else None,
             sex,
@@ -86,7 +96,7 @@ def profile_page(uid: int):
             goal_type,
             goal_weight if goal_weight > 0 else None,
             str(goal_date),
-            datetime.now().isoformat(timespec="seconds")
+            datetime.now().isoformat(timespec="seconds"),
         ))
         conn.commit()
         st.success("Profilo salvato ✅")
