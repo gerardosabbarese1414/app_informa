@@ -8,33 +8,59 @@ from openai import OpenAI
 from openai import AuthenticationError, RateLimitError, APIError, APITimeoutError
 
 
-# ========= API KEY =========
-def _get_openai_key() -> str | None:
+def _read_secret_key() -> tuple[str | None, str]:
+    """
+    Returns: (key, source) where source is 'secrets', 'env', or 'missing'
+    """
+    # 1) Streamlit secrets (Cloud)
     try:
         import streamlit as st
-        key = st.secrets.get("OPENAI_API_KEY", None)
-        if key:
-            return str(key).strip()
+        k = st.secrets.get("OPENAI_API_KEY", None)
+        if k is not None:
+            k = str(k).strip()
+            if k:
+                return k, "secrets"
     except Exception:
         pass
 
-    key = os.getenv("OPENAI_API_KEY")
-    return key.strip() if key else None
+    # 2) Environment (local fallback)
+    k = os.getenv("OPENAI_API_KEY")
+    if k:
+        k = k.strip()
+        if k:
+            return k, "env"
+
+    return None, "missing"
+
+
+def openai_status() -> dict:
+    """
+    Safe status info for UI/debug (does not reveal key).
+    """
+    key, source = _read_secret_key()
+    # Very basic sanity check: correct prefix and non-trivial length
+    format_ok = bool(key) and key.startswith("sk-") and len(key) > 20
+    return {"has_key": bool(key), "source": source, "format_ok": format_ok}
+
+
+def _get_openai_key_or_raise() -> str:
+    key, _ = _read_secret_key()
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY mancante (Streamlit Secrets o env).")
+    if not (key.startswith("sk-") and len(key) > 20):
+        raise RuntimeError("OPENAI_API_KEY presente ma con formato non valido.")
+    return key
 
 
 def _client() -> OpenAI:
-    key = _get_openai_key()
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY mancante. Inseriscila in Streamlit Secrets.")
-    return OpenAI(api_key=key)
+    return OpenAI(api_key=_get_openai_key_or_raise())
 
 
-# ========= UTILS =========
 def _b64(img: bytes) -> str:
     return base64.b64encode(img).decode("utf-8")
 
 
-def _retry(fn, max_tries=4):
+def _retry(fn, max_tries: int = 4):
     for attempt in range(1, max_tries + 1):
         try:
             return fn()
@@ -60,13 +86,7 @@ def _parse_json(text: str) -> dict:
         return {"error": "json_parse_failed", "raw": text}
 
 
-# ========= FOTO PASTO =========
-def analyze_food_photo(
-    img_bytes: bytes,
-    mime: str,
-    note: str,
-    meal_time: str
-) -> dict:
+def analyze_food_photo(img_bytes: bytes, mime: str, note: str, meal_time: str) -> dict:
     client = _client()
 
     prompt = f"""
@@ -74,12 +94,8 @@ Analizza il pasto in foto e stima calorie realistiche.
 Orario: {meal_time}
 Nota utente: {note}
 
-Rispondi SOLO in JSON:
-{{
-  "total_calories": number,
-  "description": string,
-  "notes": string
-}}
+Rispondi SOLO JSON:
+{{"total_calories": number, "description": string, "notes": string}}
 """
 
     data_url = f"data:{mime};base64,{_b64(img_bytes)}"
@@ -100,7 +116,6 @@ Rispondi SOLO in JSON:
     return _parse_json(resp.choices[0].message.content)
 
 
-# ========= PASTO DA TESTO =========
 def estimate_meal_from_text(text: str) -> dict:
     client = _client()
 
@@ -108,12 +123,8 @@ def estimate_meal_from_text(text: str) -> dict:
 Stima calorie realistiche per questo pasto:
 {text}
 
-Rispondi SOLO in JSON:
-{{
-  "total_calories": number,
-  "description": string,
-  "notes": string
-}}
+Rispondi SOLO JSON:
+{{"total_calories": number, "description": string, "notes": string}}
 """
 
     def _call():
@@ -126,46 +137,11 @@ Rispondi SOLO in JSON:
     return _parse_json(resp.choices[0].message.content)
 
 
-# ========= ALIAS COMPATIBILITÀ =========
+# Alias per compatibilità col tuo pages.py
 def estimate_from_text(text: str) -> dict:
     return estimate_meal_from_text(text)
 
 
-# ========= ALLENAMENTO =========
-def estimate_workout_from_text(
-    text: str,
-    weight_kg: float | None,
-    height_cm: float | None
-) -> dict:
-    client = _client()
-
-    prompt = f"""
-Stima calorie bruciate per questo allenamento:
-{text}
-
-Dati persona:
-- peso: {weight_kg}
-- altezza: {height_cm}
-
-Rispondi SOLO in JSON:
-{{
-  "calories_burned": number,
-  "description": string,
-  "notes": string
-}}
-"""
-
-    def _call():
-        return client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
-        )
-
-    resp = _retry(_call)
-    return _parse_json(resp.choices[0].message.content)
-
-
-# ========= PIANO SETTIMANALE =========
 def generate_weekly_plan(summary: str) -> str:
     client = _client()
 
@@ -179,14 +155,16 @@ def generate_weekly_plan(summary: str) -> str:
     return (resp.choices[0].message.content or "").strip()
 
 
-# ========= ERRORI LEGGIBILI =========
 def explain_openai_error(e: Exception) -> str:
     if isinstance(e, AuthenticationError):
-        return "Errore OpenAI: API key mancante/errata. Controlla Streamlit Secrets."
+        return ("AuthenticationError: API key OpenAI errata/revocata o non abilitata. "
+                "Rigenera la key e aggiorna i Secrets, poi Reboot app.")
     if isinstance(e, RateLimitError):
-        return "Rate limit OpenAI: troppe richieste o quota esaurita."
+        return "RateLimitError: troppe richieste o quota/crediti esauriti."
     if isinstance(e, APITimeoutError):
-        return "Timeout OpenAI. Riprova."
+        return "Timeout OpenAI: riprova."
     if isinstance(e, APIError):
-        return "Errore temporaneo OpenAI. Riprova."
+        return "Errore temporaneo OpenAI: riprova tra poco."
+    if isinstance(e, RuntimeError):
+        return str(e)
     return f"Errore OpenAI: {type(e).__name__}"
