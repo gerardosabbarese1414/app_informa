@@ -4,10 +4,10 @@ import plotly.express as px
 import calendar as cal
 from datetime import date, datetime, timedelta
 
-from database import conn
-from profile import get_profile
-from utils import bmr_mifflin, tdee_from_level, iso_year_week, kcal_round
-from ai import (
+from .database import conn
+from .profile import get_profile
+from .utils import bmr_mifflin, tdee_from_level, iso_year_week, kcal_round
+from .ai import (
     analyze_food_photo,
     estimate_meal_from_text,
     estimate_workout_from_text,
@@ -16,9 +16,6 @@ from ai import (
 )
 
 
-# ----------------------------
-# Helpers
-# ----------------------------
 def safe_read_sql(query: str, params=()):
     try:
         return pd.read_sql(query, conn, params=params)
@@ -26,30 +23,11 @@ def safe_read_sql(query: str, params=()):
         return pd.DataFrame()
 
 
-def set_active_page(name: str):
-    st.session_state.page = name
-
-
-def upsert_day_log(user_id: int, d: date, morning_weight=None, is_closed=None):
-    ds = str(d)
-    row = conn.execute(
-        "SELECT morning_weight, is_closed FROM day_logs WHERE user_id=? AND date=?",
-        (user_id, ds)
-    ).fetchone()
-
-    if row:
-        mw = morning_weight if morning_weight is not None else row[0]
-        ic = int(is_closed) if is_closed is not None else row[1]
-        conn.execute(
-            "UPDATE day_logs SET morning_weight=?, is_closed=? WHERE user_id=? AND date=?",
-            (mw, ic, user_id, ds)
-        )
-    else:
-        conn.execute(
-            "INSERT INTO day_logs (user_id, date, morning_weight, is_closed) VALUES (?,?,?,?)",
-            (user_id, ds, morning_weight, int(is_closed or 0))
-        )
-    conn.commit()
+def goto_day(d: date):
+    st.session_state.selected_date = d
+    st.session_state.page = "Giornata"
+    st.query_params.update({"view": "day", "date": str(d)})
+    st.rerun()
 
 
 def fetch_day_preview(user_id: int, d: date):
@@ -79,9 +57,6 @@ def fetch_day_preview(user_id: int, d: date):
     }
 
 
-# ----------------------------
-# Planned events (previsto)
-# ----------------------------
 def planned_for_day(user_id: int, d: date) -> pd.DataFrame:
     ds = str(d)
     return safe_read_sql(
@@ -95,16 +70,8 @@ def planned_for_day(user_id: int, d: date) -> pd.DataFrame:
     )
 
 
-def add_planned_event(
-    user_id: int,
-    d: date,
-    time_str: str,
-    typ: str,
-    title: str,
-    expected_calories: float | None,
-    duration_min: int | None,
-    notes: str | None,
-):
+def add_planned_event(user_id: int, d: date, time_str: str, typ: str, title: str,
+                      expected_calories: float | None, duration_min: int | None, notes: str | None):
     ds = str(d)
     conn.execute(
         """
@@ -122,26 +89,37 @@ def delete_planned_event(user_id: int, planned_id: int):
     conn.commit()
 
 
+def upsert_day_log(user_id: int, d: date, morning_weight=None, is_closed=None):
+    ds = str(d)
+    row = conn.execute(
+        "SELECT morning_weight, is_closed FROM day_logs WHERE user_id=? AND date=?",
+        (user_id, ds)
+    ).fetchone()
+
+    if row:
+        mw = morning_weight if morning_weight is not None else row[0]
+        ic = int(is_closed) if is_closed is not None else row[1]
+        conn.execute(
+            "UPDATE day_logs SET morning_weight=?, is_closed=? WHERE user_id=? AND date=?",
+            (mw, ic, user_id, ds)
+        )
+    else:
+        conn.execute(
+            "INSERT INTO day_logs (user_id, date, morning_weight, is_closed) VALUES (?,?,?,?)",
+            (user_id, ds, morning_weight, int(is_closed or 0))
+        )
+    conn.commit()
+
+
 def mark_planned_done_to_actual(user_id: int, d: date, planned_row: dict):
-    """
-    Converte un evento previsto in un evento reale:
-    - meal -> inserisce in meals
-    - workout -> inserisce in workouts
-    """
     ds = str(d)
     typ = planned_row.get("type")
 
     if typ == "meal":
         conn.execute(
             "INSERT INTO meals (user_id, date, time, description, calories, raw_json) VALUES (?,?,?,?,?,?)",
-            (
-                user_id,
-                ds,
-                planned_row.get("time"),
-                f"[Previsto] {planned_row.get('title')}",
-                float(planned_row.get("expected_calories") or 0),
-                None
-            )
+            (user_id, ds, planned_row.get("time"), f"[Previsto] {planned_row.get('title')}",
+             float(planned_row.get("expected_calories") or 0), None)
         )
     elif typ == "workout":
         conn.execute(
@@ -149,26 +127,17 @@ def mark_planned_done_to_actual(user_id: int, d: date, planned_row: dict):
             INSERT INTO workouts (user_id, date, time, description, duration_min, calories_burned, raw_json)
             VALUES (?,?,?,?,?,?,?)
             """,
-            (
-                user_id,
-                ds,
-                planned_row.get("time"),
-                f"[Previsto] {planned_row.get('title')}",
-                int(planned_row.get("duration_min") or 0),
-                float(planned_row.get("expected_calories") or 0),
-                None
-            )
+            (user_id, ds, planned_row.get("time"), f"[Previsto] {planned_row.get('title')}",
+             int(planned_row.get("duration_min") or 0), float(planned_row.get("expected_calories") or 0), None)
         )
 
-    conn.execute(
-        "UPDATE planned_events SET status='done' WHERE user_id=? AND id=?",
-        (user_id, int(planned_row["id"]))
-    )
+    conn.execute("UPDATE planned_events SET status='done' WHERE user_id=? AND id=?",
+                 (user_id, int(planned_row["id"])))
     conn.commit()
 
 
 # ----------------------------
-# Pages
+# Dashboard
 # ----------------------------
 def dashboard_page(user_id: int):
     st.header("📊 Dashboard")
@@ -200,107 +169,158 @@ def dashboard_page(user_id: int):
                         use_container_width=True)
 
 
+# ----------------------------
+# Calendar month view (Google-like)
+# ----------------------------
 def month_calendar_page(user_id: int):
     st.header("📅 Calendario (mese)")
 
     if "selected_date" not in st.session_state:
         st.session_state.selected_date = date.today()
 
-    c1, c2 = st.columns(2)
+    qp = st.query_params
+    if qp.get("view") == "day" and qp.get("date"):
+        try:
+            goto_day(date.fromisoformat(qp.get("date")))
+        except Exception:
+            pass
+
+    c1, c2, c3 = st.columns([1, 1, 2])
     with c1:
         year = st.number_input("Anno", 2020, 2100, st.session_state.selected_date.year, 1)
     with c2:
         month = st.number_input("Mese", 1, 12, st.session_state.selected_date.month, 1)
+    with c3:
+        if st.button("Oggi", use_container_width=True):
+            st.session_state.selected_date = date.today()
+            st.rerun()
 
     month_matrix = cal.monthcalendar(int(year), int(month))
-    st.caption("Click su un giorno → vai alla compilazione (Giornata).")
-
     headers = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
-    hcols = st.columns(7)
-    for i, h in enumerate(headers):
-        hcols[i].markdown(f"**{h}**")
 
+    st.markdown('<div class="cal-wrap">', unsafe_allow_html=True)
+    st.markdown('<div class="cal-head">' + "".join([f"<div>{h}</div>" for h in headers]) + "</div>", unsafe_allow_html=True)
+
+    start = date(int(year), int(month), 1)
+    end = date(int(year), int(month), cal.monthrange(int(year), int(month))[1])
+
+    day_logs = safe_read_sql(
+        "SELECT date, morning_weight, is_closed FROM day_logs WHERE user_id=? AND date>=? AND date<=?",
+        (user_id, str(start), str(end))
+    )
+    sums = safe_read_sql(
+        "SELECT date, net_calories FROM daily_summaries WHERE user_id=? AND date>=? AND date<=?",
+        (user_id, str(start), str(end))
+    )
+    planned = safe_read_sql(
+        "SELECT date, COUNT(*) as cnt FROM planned_events WHERE user_id=? AND date>=? AND date<=? GROUP BY date",
+        (user_id, str(start), str(end))
+    )
+
+    day_logs_map = {r["date"]: r for _, r in day_logs.iterrows()} if not day_logs.empty else {}
+    sums_map = {r["date"]: r["net_calories"] for _, r in sums.iterrows()} if not sums.empty else {}
+    planned_map = {r["date"]: int(r["cnt"]) for _, r in planned.iterrows()} if not planned.empty else {}
+
+    def mini_events(ds: str) -> list[str]:
+        df = safe_read_sql(
+            """
+            SELECT time, type, title, expected_calories
+            FROM planned_events
+            WHERE user_id=? AND date=?
+            ORDER BY time
+            LIMIT 3
+            """,
+            (user_id, ds)
+        )
+        out = []
+        if df.empty:
+            return out
+        for _, r in df.iterrows():
+            tag = "🍽️" if r["type"] == "meal" else "🏃"
+            kcal = f" ~{kcal_round(r['expected_calories'])}kcal" if pd.notna(r["expected_calories"]) else ""
+            out.append(f"{tag} {r['time']}{kcal}")
+        return out
+
+    cells_html = ['<div class="cal-grid">']
     for week in month_matrix:
-        cols = st.columns(7)
-        for i, day_num in enumerate(week):
+        for day_num in week:
             if day_num == 0:
-                cols[i].markdown(" ")
+                cells_html.append('<div class="cal-cell cal-muted"></div>')
                 continue
 
             d = date(int(year), int(month), int(day_num))
-            p = fetch_day_preview(user_id, d)
+            ds = str(d)
 
-            badge = "✅" if p["closed"] else "•"
-            color_cls = ""
-            if p["net"] is not None:
-                if p["net"] <= 0:
-                    color_cls = "badge-ok"
-                elif p["net"] <= 300:
-                    color_cls = "badge-warn"
+            dl = day_logs_map.get(ds)
+            mw = dl["morning_weight"] if dl is not None else None
+            closed = bool(dl["is_closed"]) if dl is not None else False
+
+            net = sums_map.get(ds)
+            pcount = planned_map.get(ds, 0)
+
+            badge = "✅" if closed else "•"
+            net_html = ""
+            if net is not None:
+                if net <= 0:
+                    cls = "badge-ok"
+                elif net <= 300:
+                    cls = "badge-warn"
                 else:
-                    color_cls = "badge-bad"
+                    cls = "badge-bad"
+                net_html = f'<div class="{cls}">NET {kcal_round(net)}</div>'
 
-            # Preview planned: prendiamo max 2 eventi per giorno
-            planned_preview = safe_read_sql(
-                """
-                SELECT time, type, title, expected_calories
-                FROM planned_events
-                WHERE user_id=? AND date=?
-                ORDER BY time
-                LIMIT 2
-                """,
-                (user_id, str(d))
-            )
+            weight_html = f"<div class='mini'>⚖️ {float(mw):.1f} kg</div>" if mw is not None else ""
+            planned_html = f"<div class='mini'>🗓️ {pcount} prev.</div>" if pcount > 0 else ""
 
-            # Button giorno: porta alla pagina “Giornata”
-            if cols[i].button(f"{day_num}", key=f"day_{year}_{month}_{day_num}", use_container_width=True):
-                st.session_state.selected_date = d
-                set_active_page("Giornata")
-                st.rerun()
+            minis = mini_events(ds)
+            minis_html = ""
+            if minis:
+                minis_html = "<div class='mini'>" + "".join([f"<div>{x}</div>" for x in minis]) + "</div>"
 
-            preview = f"{badge} **{day_num}**"
-            if p["weight"] is not None:
-                preview += f"\n{p['weight']:.1f} kg"
-            if p["net"] is not None:
-                preview += f"\n<span class='{color_cls}'>NET {kcal_round(p['net'])}</span>"
+            href = f"?view=day&date={ds}"
+            cell = f"""
+            <a class="cal-cell" href="{href}">
+              <div class="cal-daynum">{badge} {day_num}</div>
+              <div class="cal-badges">
+                {weight_html}
+                {planned_html}
+                {net_html}
+                {minis_html}
+              </div>
+            </a>
+            """
+            cells_html.append(cell)
 
-            # Eventi pianificati sotto
-            if p["planned"] > 0:
-                preview += f"\n🗓️ {p['planned']} prev."
-            cols[i].markdown(preview, unsafe_allow_html=True)
-
-            # mini lista eventi
-            if not planned_preview.empty:
-                lines = []
-                for _, r in planned_preview.iterrows():
-                    tag = "🍽️" if r["type"] == "meal" else "🏃"
-                    kcal = f"~{kcal_round(r['expected_calories'])}kcal" if r["expected_calories"] is not None else ""
-                    lines.append(f"{tag} {r['time']} {kcal}")
-                cols[i].caption("\n".join(lines))
+    cells_html.append("</div>")
+    st.markdown("".join(cells_html), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
+# ----------------------------
+# Day page
+# ----------------------------
 def day_page(user_id: int, d: date):
     ds = str(d)
     st.header(f"🗓️ Giornata: {ds}")
 
-    # --- stato giorno ---
     row = conn.execute(
         "SELECT morning_weight, is_closed FROM day_logs WHERE user_id=? AND date=?",
         (user_id, ds)
     ).fetchone()
-
     morning_weight = row[0] if row else None
     is_closed = bool(row[1]) if row else False
 
-    # Pulsanti navigazione rapida
     nav1, nav2, nav3 = st.columns([1, 1, 3])
     with nav1:
         if st.button("⬅️ Giorno precedente"):
-            st.session_state.selected_date = d - timedelta(days=1)
-            st.rerun()
+            goto_day(d - timedelta(days=1))
     with nav2:
         if st.button("Giorno successivo ➡️"):
-            st.session_state.selected_date = d + timedelta(days=1)
+            goto_day(d + timedelta(days=1))
+    with nav3:
+        if st.button("↩︎ Torna al mese", use_container_width=True):
+            st.session_state.page = "Calendario"
+            st.query_params.clear()
             st.rerun()
 
     if is_closed:
@@ -309,15 +329,14 @@ def day_page(user_id: int, d: date):
             upsert_day_log(user_id, d, is_closed=0)
             st.rerun()
 
-    # ----------------------------
-    # PREVISTO (planned)
-    # ----------------------------
+    # PREVISTO
     st.subheader("🗓️ Previsto (pianificato)")
     planned = planned_for_day(user_id, d)
 
     add_col1, add_col2, add_col3, add_col4 = st.columns([1, 1, 2, 2])
     with add_col1:
-        p_type = st.selectbox("Tipo", ["meal", "workout"], format_func=lambda x: "Pasto" if x == "meal" else "Allenamento",
+        p_type = st.selectbox("Tipo", ["meal", "workout"],
+                              format_func=lambda x: "Pasto" if x == "meal" else "Allenamento",
                               key=f"ptype_{ds}", disabled=is_closed)
     with add_col2:
         p_time = st.text_input("Ora", value="08:00", key=f"ptime_{ds}", disabled=is_closed)
@@ -337,20 +356,16 @@ def day_page(user_id: int, d: date):
                 st.error("Inserisci un titolo.")
             else:
                 add_planned_event(
-                    user_id, d,
-                    time_str=p_time.strip(),
-                    typ=p_type,
-                    title=p_title.strip(),
-                    expected_calories=float(p_kcal) if p_kcal > 0 else None,
-                    duration_min=int(p_dur) if (p_type == "workout" and p_dur > 0) else None,
-                    notes=p_notes.strip() if p_notes.strip() else None
+                    user_id, d, p_time.strip(), p_type, p_title.strip(),
+                    float(p_kcal) if p_kcal > 0 else None,
+                    int(p_dur) if (p_type == "workout" and p_dur > 0) else None,
+                    p_notes.strip() if p_notes.strip() else None
                 )
                 st.rerun()
 
     if planned.empty:
-        st.caption("Nessun evento pianificato per questo giorno (aggiungilo sopra o dal piano settimanale).")
+        st.caption("Nessun evento pianificato per questo giorno.")
     else:
-        # Rendering con checkbox “fatto” e azioni
         for _, r in planned.iterrows():
             left, mid, right = st.columns([6, 2, 2])
             tag = "🍽️" if r["type"] == "meal" else "🏃"
@@ -376,12 +391,9 @@ def day_page(user_id: int, d: date):
 
     st.divider()
 
-    # ----------------------------
-    # REALE (actual): peso/pasti/allenamenti
-    # ----------------------------
+    # REALE
     st.subheader("✅ Reale (effettivo)")
 
-    # Peso mattina
     st.markdown("### ⚖️ Peso mattina")
     w = st.number_input(
         "Peso (kg)",
@@ -394,10 +406,8 @@ def day_page(user_id: int, d: date):
         upsert_day_log(user_id, d, morning_weight=w, is_closed=0)
         st.success("Peso salvato ✅")
 
-    # Pasti reali
     st.markdown("### 🍽️ Pasti (reali)")
 
-    # Foto
     st.markdown("#### 📷 Da foto")
     f1, f2 = st.columns([1, 2])
     with f1:
@@ -431,7 +441,6 @@ def day_page(user_id: int, d: date):
                 st.session_state.pop(f"photo_res_real_{ds}", None)
                 st.rerun()
 
-    # Manuale
     st.markdown("#### ✍️ Manuale")
     m1, m2, m3 = st.columns([1, 2, 1])
     with m1:
@@ -472,21 +481,14 @@ def day_page(user_id: int, d: date):
                 st.rerun()
 
     meals = safe_read_sql(
-        "SELECT id, time, description, calories FROM meals WHERE user_id=? AND date=? ORDER BY time",
+        "SELECT time, description, calories FROM meals WHERE user_id=? AND date=? ORDER BY time",
         (user_id, ds)
     )
     total_in = float(meals["calories"].fillna(0).sum()) if not meals.empty else 0.0
     if not meals.empty:
-        st.dataframe(meals.drop(columns=["id"]), use_container_width=True)
-        del_id = st.number_input("ID pasto da eliminare", min_value=0, value=0, step=1, key=f"delmeal_{ds}", disabled=is_closed)
-        if st.button("🗑️ Elimina pasto", key=f"delmealbtn_{ds}", disabled=is_closed):
-            if del_id > 0:
-                conn.execute("DELETE FROM meals WHERE user_id=? AND id=?", (user_id, int(del_id)))
-                conn.commit()
-                st.rerun()
+        st.dataframe(meals, use_container_width=True)
     st.metric("Totale calorie ingerite", f"{kcal_round(total_in)} kcal")
 
-    # Allenamenti reali
     st.markdown("### 🏃 Allenamento (reale)")
     w1, w2 = st.columns([1, 2])
     with w1:
@@ -538,21 +540,14 @@ def day_page(user_id: int, d: date):
                 st.rerun()
 
     workouts = safe_read_sql(
-        "SELECT id, time, description, duration_min, calories_burned FROM workouts WHERE user_id=? AND date=? ORDER BY time",
+        "SELECT time, description, duration_min, calories_burned FROM workouts WHERE user_id=? AND date=? ORDER BY time",
         (user_id, ds)
     )
     total_workout = float(workouts["calories_burned"].fillna(0).sum()) if not workouts.empty else 0.0
     if not workouts.empty:
-        st.dataframe(workouts.drop(columns=["id"]), use_container_width=True)
-        delw_id = st.number_input("ID allenamento da eliminare", min_value=0, value=0, step=1, key=f"delwo_{ds}", disabled=is_closed)
-        if st.button("🗑️ Elimina allenamento", key=f"delwobtn_{ds}", disabled=is_closed):
-            if delw_id > 0:
-                conn.execute("DELETE FROM workouts WHERE user_id=? AND id=?", (user_id, int(delw_id)))
-                conn.commit()
-                st.rerun()
+        st.dataframe(workouts, use_container_width=True)
     st.metric("Totale calorie bruciate (allenamento)", f"{kcal_round(total_workout)} kcal")
 
-    # TDEE matematico
     st.markdown("### 🔥 Calorie a riposo (TDEE stimato)")
     sex = prof.get("sex") or "M"
     age = int(prof.get("age") or 25)
@@ -562,7 +557,6 @@ def day_page(user_id: int, d: date):
     rest = tdee_from_level(bmr, act)
     st.write(f"TDEE stimato: **{kcal_round(rest)} kcal/giorno**")
 
-    # Chiudi giornata
     st.divider()
     st.subheader("🔒 Chiudi giornata (salva riepilogo)")
     calories_out = float(rest) + float(total_workout)
@@ -587,16 +581,17 @@ def day_page(user_id: int, d: date):
         st.rerun()
 
 
+# ----------------------------
+# Weekly plan (ensures insertion)
+# ----------------------------
 def weekly_plan_page(user_id: int):
     st.header("🧠 Piano settimanale → Inserisci nel calendario (previsto)")
 
     today = date.today()
-    # week_start: prossimo lunedì come default
     default_start = today + timedelta(days=(7 - today.weekday()) % 7)
     week_start = st.date_input("Settimana da pianificare (lunedì)", value=default_start)
 
     st.subheader("Allenamenti previsti (scegli tu giorni e orari)")
-    # tabellina editabile
     if "workout_slots" not in st.session_state:
         st.session_state.workout_slots = pd.DataFrame(
             [
@@ -615,7 +610,6 @@ def weekly_plan_page(user_id: int):
 
     prof = get_profile(user_id) or {}
 
-    # Recupera settimana precedente per contesto
     prev_start = week_start - timedelta(days=7)
     prev_end = week_start - timedelta(days=1)
     last_week_sums = safe_read_sql(
@@ -623,7 +617,6 @@ def weekly_plan_page(user_id: int):
         (user_id, str(prev_start), str(prev_end))
     )
 
-    # Se già generato, mostralo (cache in weekly_plan) per quella settimana
     y, w = iso_year_week(week_start)
     existing = conn.execute(
         "SELECT content, created_at FROM weekly_plan WHERE user_id=? AND iso_year=? AND iso_week=?",
@@ -636,20 +629,15 @@ def weekly_plan_page(user_id: int):
         colx, coly = st.columns(2)
         with colx:
             if st.button("Re-inserisci eventi nel calendario (previsto)"):
-                _apply_plan_text_to_calendar(user_id, week_start, existing[0], st.session_state.workout_slots)
+                _apply_plan_to_calendar(user_id, week_start, existing[0], st.session_state.workout_slots)
                 st.success("Eventi previsti inseriti nel calendario ✅")
         with coly:
             if st.button("Rigenera piano (nuova chiamata)"):
                 existing = None
 
     if not existing:
-        if st.button("🔄 Genera piano + Inserisci nel calendario"):
-            prompt = build_weekly_plan_prompt(
-                profile=prof,
-                week_start=week_start,
-                workout_slots=st.session_state.workout_slots,
-                last_week_sums=last_week_sums
-            )
+        if st.button("🔄 Genera piano + Inserisci nel calendario", type="primary"):
+            prompt = build_weekly_plan_prompt(prof, week_start, st.session_state.workout_slots, last_week_sums)
             with st.spinner("Genero piano..."):
                 try:
                     content = generate_weekly_plan(prompt)
@@ -663,22 +651,28 @@ def weekly_plan_page(user_id: int):
             )
             conn.commit()
 
-            _apply_plan_text_to_calendar(user_id, week_start, content, st.session_state.workout_slots)
-            st.success("Piano generato e inserito nel calendario ✅")
+            _apply_plan_to_calendar(user_id, week_start, content, st.session_state.workout_slots)
+
+            week_end = week_start + timedelta(days=6)
+            cnt = conn.execute(
+                "SELECT COUNT(*) FROM planned_events WHERE user_id=? AND date>=? AND date<=?",
+                (user_id, str(week_start), str(week_end))
+            ).fetchone()[0]
+            st.success(f"Piano inserito ✅ (eventi creati: {cnt})")
+
+            st.session_state.page = "Calendario"
             st.rerun()
 
 
 def build_weekly_plan_prompt(profile: dict, week_start: date, workout_slots: pd.DataFrame, last_week_sums: pd.DataFrame) -> str:
-    # Prompt “ibrido”: numeri e vincoli tuoi, GPT produce piano leggibile + struttura
-    # (per ora testo; nel prossimo step lo trasformiamo in JSON strutturato)
     lines = []
     lines.append("Sei un coach nutrizionale/fitness. Crea un piano settimanale pratico.")
     lines.append("")
     lines.append("VINCOLI IMPORTANTI:")
-    lines.append("- Deve distribuire i pasti su ogni giorno con orari (colazione, pranzo, cena + eventuali spuntini).")
-    lines.append("- Deve essere coerente con l'obiettivo e la data obiettivo.")
-    lines.append("- Inserisci kcal stimate per ogni pasto e un totale giornaliero stimato.")
-    lines.append("- Non cambiare i giorni/orari delle sedute allenamento scelte dall'utente: puoi solo migliorare contenuti e suggerimenti.")
+    lines.append("- Distribuisci i pasti su ogni giorno con orari (colazione, pranzo, cena + spuntini).")
+    lines.append("- Coerente con obiettivo e data obiettivo.")
+    lines.append("- Inserisci kcal stimate per ogni pasto e totale giornaliero stimato.")
+    lines.append("- Non cambiare giorni/orari allenamenti scelti dall'utente.")
     lines.append("")
     lines.append(f"SETTIMANA START (lunedì): {week_start}")
     lines.append("")
@@ -710,22 +704,12 @@ def build_weekly_plan_prompt(profile: dict, week_start: date, workout_slots: pd.
     lines.append("- orario + nome pasto + descrizione breve + kcal stimate")
     lines.append("- allenamento (se previsto) con orario")
     lines.append("- totale kcal giornaliero stimato")
-    lines.append("")
-    lines.append("ORARI CONSIGLIATI (usa questi se non hai motivi per cambiarli):")
-    lines.append("- 08:00 colazione")
-    lines.append("- 13:00 pranzo")
-    lines.append("- 17:00 spuntino")
-    lines.append("- 20:30 cena")
     return "\n".join(lines)
 
 
 def _estimate_workout_kcal(title: str, duration_min: int) -> float:
-    """
-    Stima stabile (no GPT) per kcal bruciate (kcal/min).
-    """
     t = (title or "").lower()
     dur = max(int(duration_min or 0), 0)
-
     if "corsa" in t or "run" in t:
         kpm = 10.0
     elif "pesi" in t or "forza" in t or "gym" in t:
@@ -736,16 +720,11 @@ def _estimate_workout_kcal(title: str, duration_min: int) -> float:
         kpm = 8.0
     else:
         kpm = 7.5
-
     return float(kpm * dur)
 
 
 def _daily_target_kcal(profile: dict, rest_kcal: float) -> float:
-    """
-    Target giornaliero basato su goal (semplice e robusto).
-    """
     goal_type = (profile.get("goal_type") or "mantenimento").lower()
-
     if "dimagr" in goal_type or "deficit" in goal_type:
         return max(rest_kcal - 500, 1200)
     if "massa" in goal_type or "surplus" in goal_type:
@@ -753,14 +732,9 @@ def _daily_target_kcal(profile: dict, rest_kcal: float) -> float:
     return rest_kcal
 
 
-def _apply_plan_text_to_calendar(user_id: int, week_start: date, plan_text: str, workout_slots: pd.DataFrame):
-    """
-    Inserisce nel calendario (planned_events) eventi pianificati per la settimana.
-    Non fa parsing del testo (troppo fragile): crea eventi coerenti e calcolati.
-    """
+def _apply_plan_to_calendar(user_id: int, week_start: date, plan_text: str, workout_slots: pd.DataFrame):
     prof = get_profile(user_id) or {}
 
-    # parametri base per TDEE
     weight = float(prof.get("start_weight") or 75.0)
     height = float(prof.get("height_cm") or 175.0)
     sex = (prof.get("sex") or "M")
@@ -771,7 +745,6 @@ def _apply_plan_text_to_calendar(user_id: int, week_start: date, plan_text: str,
     rest = tdee_from_level(bmr, act)
     target_in = _daily_target_kcal(prof, rest)
 
-    # ripartizione pasti
     meal_slots = [
         ("08:00", "Colazione (piano)", 0.25),
         ("13:00", "Pranzo (piano)", 0.35),
@@ -781,19 +754,18 @@ def _apply_plan_text_to_calendar(user_id: int, week_start: date, plan_text: str,
 
     week_end = week_start + timedelta(days=6)
 
-    # pulisci planned della settimana (se rigeneri)
+    # pulizia settimana per evitare duplicati
     conn.execute(
         "DELETE FROM planned_events WHERE user_id=? AND date>=? AND date<=?",
         (user_id, str(week_start), str(week_end))
     )
     conn.commit()
 
-    # nota breve dal piano testuale
     note = (plan_text or "").strip()
     if len(note) > 350:
         note = note[:350] + "…"
 
-    # inserisci pasti
+    # pasti su ogni giorno
     for i in range(7):
         d = week_start + timedelta(days=i)
         ds = str(d)
@@ -808,18 +780,19 @@ def _apply_plan_text_to_calendar(user_id: int, week_start: date, plan_text: str,
                 (user_id, ds, t, "meal", title, kcal, None, "planned", note)
             )
 
-    # inserisci allenamenti scelti dall’utente
+    # allenamenti SOLO dove l'utente li ha messi
     if workout_slots is not None and not workout_slots.empty:
         for _, r in workout_slots.iterrows():
-            ds = str(r.get("date"))
-            time_str = str(r.get("time") or "19:00")
-            title = str(r.get("title") or "Allenamento")
+            ds = str(r.get("date") or "").strip()
+            time_str = str(r.get("time") or "19:00").strip()
+            title = str(r.get("title") or "Allenamento").strip()
             dur = int(r.get("duration_min") or 0)
 
             try:
                 d0 = date.fromisoformat(ds)
             except Exception:
                 continue
+
             if d0 < week_start or d0 > week_end:
                 continue
 
@@ -831,8 +804,30 @@ def _apply_plan_text_to_calendar(user_id: int, week_start: date, plan_text: str,
                   (user_id, date, time, type, title, expected_calories, duration_min, status, notes)
                 VALUES (?,?,?,?,?,?,?,?,?)
                 """,
-                (user_id, ds, time_str, "workout", title, float(kcal_burn),
+                (user_id, str(d0), time_str, "workout", title, float(kcal_burn),
                  int(dur) if dur > 0 else None, "planned", "Allenamento pianificato")
             )
 
     conn.commit()
+
+
+def export_month_csv(user_id: int):
+    st.header("📤 Export CSV (mese)")
+    today = date.today()
+    y = st.number_input("Anno", 2020, 2100, today.year, 1)
+    m = st.number_input("Mese", 1, 12, today.month, 1)
+
+    start = date(int(y), int(m), 1)
+    end = date(int(y), int(m), cal.monthrange(int(y), int(m))[1])
+
+    sums = safe_read_sql(
+        "SELECT * FROM daily_summaries WHERE user_id=? AND date>=? AND date<=? ORDER BY date",
+        (user_id, str(start), str(end))
+    )
+
+    if sums.empty:
+        st.info("Nessun dato nel mese selezionato.")
+        return
+
+    csv = sums.to_csv(index=False).encode("utf-8")
+    st.download_button("Scarica CSV", csv, file_name=f"daily_summaries_{y}_{m}.csv", mime="text/csv")

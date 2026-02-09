@@ -1,10 +1,10 @@
 import streamlit as st
 
-from styles import load_styles
-from auth import login, register
+from app_informa.styles import load_styles
+from app_informa.auth import login, register
 from profile import get_profile, profile_complete, profile_page
-from ai import openai_status
-from pages import dashboard_page, month_calendar_page, weekly_plan_page, export_month_csv
+from app_informa.ai import openai_status
+from app_informa.pages import dashboard_page, month_calendar_page, weekly_plan_page, export_month_csv
 
 st.set_page_config(page_title="InForma", layout="wide")
 load_styles()
