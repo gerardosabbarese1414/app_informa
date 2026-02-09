@@ -8,22 +8,9 @@ def get_profile(user_id: int) -> dict | None:
         SELECT start_weight, height_cm, sex, age, activity_level, goal_type, goal_weight, goal_date, body_fat, lean_mass
         FROM user_profile WHERE user_id=?
     """, (user_id,)).fetchone()
-
     if not row:
         return None
-
-    return {
-        "start_weight": row[0],
-        "height_cm": row[1],
-        "sex": row[2],
-        "age": row[3],
-        "activity_level": row[4],
-        "goal_type": row[5],
-        "goal_weight": row[6],
-        "goal_date": row[7],
-        "body_fat": row[8],
-        "lean_mass": row[9],
-    }
+    return dict(row)
 
 
 def profile_complete(user_id: int) -> bool:
@@ -57,16 +44,14 @@ def profile_page(user_id: int):
     with c3:
         activity_options = ["sedentario", "leggero", "moderato", "attivo", "molto_attivo"]
         activity_val = str(p.get("activity_level") or "leggero").strip().lower()
-        activity_index = activity_options.index(activity_val) if activity_val in activity_options else 1
-        activity = st.selectbox("Livello attività", activity_options, index=activity_index)
+        activity_idx = activity_options.index(activity_val) if activity_val in activity_options else 1
+        activity = st.selectbox("Livello attività", activity_options, index=activity_idx)
 
-        # ✅ FIX ROBUSTO goal_type (anche se nel DB è 1, None, ecc.)
         goal_options = ["dimagrimento", "mantenimento", "massa"]
         raw_goal = p.get("goal_type")
         goal_value = str(raw_goal).strip().lower() if raw_goal is not None else "mantenimento"
         if goal_value not in goal_options:
             goal_value = "mantenimento"
-
         goal_type = st.selectbox("Obiettivo", goal_options, index=goal_options.index(goal_value))
 
     c4, c5, c6 = st.columns(3)
