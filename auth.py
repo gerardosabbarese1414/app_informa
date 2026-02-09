@@ -1,16 +1,21 @@
-import hashlib
 import os
+import hashlib
 from datetime import datetime
-import streamlit as st
 from database import conn
 
 
 def _hash_password(pw: str) -> str:
+    """
+    Hash semplice (demo). Per produzione vera: bcrypt/argon2.
+    """
     salt = os.getenv("PW_SALT", "change-me-salt")
-    return hashlib.sha256((salt + (pw or "")).encode("utf-8")).hexdigest()
+    return hashlib.sha256((salt + pw).encode("utf-8")).hexdigest()
 
 
-def register_user(email: str, password: str):
+def create_user(email: str, password: str) -> int:
+    """
+    Crea utente e ritorna user_id.
+    """
     email = (email or "").strip().lower()
     if not email or not password:
         raise ValueError("Email e password obbligatorie")
@@ -22,8 +27,14 @@ def register_user(email: str, password: str):
     )
     conn.commit()
 
+    row = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+    return int(row[0])
 
-def login_user(email: str, password: str):
+
+def verify_login(email: str, password: str) -> int | None:
+    """
+    Ritorna user_id se credenziali ok, altrimenti None.
+    """
     email = (email or "").strip().lower()
     if not email or not password:
         return None
@@ -34,29 +45,3 @@ def login_user(email: str, password: str):
         (email, h)
     ).fetchone()
     return int(row[0]) if row else None
-
-
-def login_page():
-    st.subheader("🔐 Login")
-    email = st.text_input("Email", key="login_email")
-    pw = st.text_input("Password", type="password", key="login_pw")
-
-    if st.button("Login", type="primary"):
-        uid = login_user(email, pw)
-        if uid:
-            st.session_state.user_id = uid
-            st.rerun()
-        st.error("Credenziali errate.")
-
-
-def register_page():
-    st.subheader("🧾 Registrazione")
-    email = st.text_input("Email", key="reg_email")
-    pw = st.text_input("Password", type="password", key="reg_pw")
-
-    if st.button("Crea account"):
-        try:
-            register_user(email, pw)
-            st.success("Account creato ✅ Ora fai login.")
-        except Exception as e:
-            st.error(str(e))
