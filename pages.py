@@ -235,7 +235,10 @@ def month_calendar_page(user_id: int):
     st.caption("Clicca una cella (stile Google Calendar) → apre il giorno con compilazione.")
 
     st.markdown('<div class="cal-wrap">', unsafe_allow_html=True)
-    st.markdown('<div class="cal-head">' + "".join([f"<div>{h}</div>" for h in headers]) + "</div>", unsafe_allow_html=True)
+    st.markdown(
+        '<div class="cal-head">' + "".join([f"<div>{h}</div>" for h in headers]) + "</div>",
+        unsafe_allow_html=True
+    )
 
     cells = ['<div class="cal-grid">']
     today = date.today()
@@ -288,20 +291,21 @@ def month_calendar_page(user_id: int):
             is_today_cls = " cal-today" if d == today else ""
             href = f"?view=day&date={d.isoformat()}"
 
-            cell_html = f"""
-              <a class="cal-cell{is_today_cls}" href="{href}">
-                <div class="cal-top">
-                  <div class="cal-daynum">{day_num}</div>
-                  <div class="cal-dot">{badge}</div>
-                </div>
-                <div class="cal-meta">
-                  {"<br>".join(meta_lines) if meta_lines else "&nbsp;"}
-                </div>
-                <div class="cal-mini">
-                  {"".join(mini) if mini else ""}
-                </div>
-              </a>
-            """
+            # ✅ FIX: niente triple-quote indentate (altrimenti Streamlit lo stampa come codice)
+            cell_html = (
+                f'<a class="cal-cell{is_today_cls}" href="{href}">'
+                f'  <div class="cal-top">'
+                f'    <div class="cal-daynum">{day_num}</div>'
+                f'    <div class="cal-dot">{badge}</div>'
+                f'  </div>'
+                f'  <div class="cal-meta">'
+                f'    {("<br>".join(meta_lines) if meta_lines else "&nbsp;")}'
+                f'  </div>'
+                f'  <div class="cal-mini">'
+                f'    {("".join(mini) if mini else "")}'
+                f'  </div>'
+                f'</a>'
+            )
             cells.append(cell_html)
 
     cells.append("</div></div>")
@@ -315,7 +319,6 @@ def day_page(user_id: int, d: date):
     ds = str(d)
     st.header(f"🗓️ Giornata: {ds}")
 
-    # stato giorno
     row = conn.execute(
         "SELECT morning_weight, is_closed FROM day_logs WHERE user_id=? AND date=?",
         (user_id, ds)
@@ -337,15 +340,18 @@ def day_page(user_id: int, d: date):
             upsert_day_log(user_id, d, is_closed=0)
             st.rerun()
 
-    # PREVISTO
     st.subheader("🗓️ Previsto (pianificato)")
     planned = planned_for_day(user_id, d)
 
     add_col1, add_col2, add_col3, add_col4 = st.columns([1, 1, 2, 2])
     with add_col1:
-        p_type = st.selectbox("Tipo", ["meal", "workout"],
-                              format_func=lambda x: "Pasto" if x == "meal" else "Allenamento",
-                              key=f"ptype_{ds}", disabled=is_closed)
+        p_type = st.selectbox(
+            "Tipo",
+            ["meal", "workout"],
+            format_func=lambda x: "Pasto" if x == "meal" else "Allenamento",
+            key=f"ptype_{ds}",
+            disabled=is_closed
+        )
     with add_col2:
         p_time = st.text_input("Ora", value="08:00", key=f"ptime_{ds}", disabled=is_closed)
     with add_col3:
@@ -355,9 +361,13 @@ def day_page(user_id: int, d: date):
 
     cA, cB, cC = st.columns([1, 1, 2])
     with cA:
-        p_kcal = st.number_input("Kcal previste", min_value=0, value=0, step=50, key=f"pkcal_{ds}", disabled=is_closed)
+        p_kcal = st.number_input(
+            "Kcal previste", min_value=0, value=0, step=50, key=f"pkcal_{ds}", disabled=is_closed
+        )
     with cB:
-        p_dur = st.number_input("Durata (min) (solo workout)", min_value=0, value=0, step=5, key=f"pdur_{ds}", disabled=is_closed)
+        p_dur = st.number_input(
+            "Durata (min) (solo workout)", min_value=0, value=0, step=5, key=f"pdur_{ds}", disabled=is_closed
+        )
     with cC:
         if st.button("➕ Aggiungi al previsto", disabled=is_closed, key=f"addplanned_{ds}"):
             if not p_title.strip():
@@ -389,8 +399,10 @@ def day_page(user_id: int, d: date):
                 if r["notes"]:
                     st.caption(r["notes"])
             with mid:
-                done = st.checkbox("Fatto", value=(status == "done"),
-                                   key=f"done_{ds}_{int(r['id'])}", disabled=is_closed)
+                done = st.checkbox(
+                    "Fatto", value=(status == "done"),
+                    key=f"done_{ds}_{int(r['id'])}", disabled=is_closed
+                )
                 if done and status != "done" and not is_closed:
                     mark_planned_done_to_actual(user_id, d, r.to_dict())
                     st.rerun()
@@ -398,6 +410,8 @@ def day_page(user_id: int, d: date):
                 if st.button("🗑️", key=f"delplanned_{ds}_{int(r['id'])}", disabled=is_closed):
                     delete_planned_event(user_id, int(r["id"]))
                     st.rerun()
+
+
 # ----------------------------
 # Weekly plan
 # ----------------------------
@@ -460,11 +474,6 @@ def _daily_target_kcal(profile: dict, rest_kcal: float) -> float:
 
 
 def _apply_plan_to_calendar(user_id: int, week_start: date, plan_text: str, workout_slots: pd.DataFrame):
-    """
-    Inserisce il piano nel calendario (planned_events) per la settimana scelta.
-    - Pasti: 4 slot al giorno con kcal target (calcolo matematico via TDEE + goal)
-    - Allenamenti: esattamente nei giorni/orari scelti dall'utente (workout_slots)
-    """
     prof = get_profile(user_id) or {}
 
     weight = float(prof.get("start_weight") or 75.0)
@@ -486,19 +495,16 @@ def _apply_plan_to_calendar(user_id: int, week_start: date, plan_text: str, work
 
     week_end = week_start + timedelta(days=6)
 
-    # pulizia settimana (rigenerazione)
     conn.execute(
         "DELETE FROM planned_events WHERE user_id=? AND date>=? AND date<=?",
         (user_id, str(week_start), str(week_end))
     )
     conn.commit()
 
-    # salva note brevi del piano testuale dentro ogni evento (utile per contesto)
     note = (plan_text or "").strip()
     if len(note) > 350:
         note = note[:350] + "…"
 
-    # pasti previsti
     for i in range(7):
         d = week_start + timedelta(days=i)
         ds = str(d)
@@ -513,7 +519,6 @@ def _apply_plan_to_calendar(user_id: int, week_start: date, plan_text: str, work
                 (user_id, ds, t, "meal", title, kcal, None, "planned", note)
             )
 
-    # allenamenti scelti dall’utente (giorno/ora/durata)
     if workout_slots is not None and not workout_slots.empty:
         for _, r in workout_slots.iterrows():
             ds = str(r.get("date"))
@@ -547,7 +552,7 @@ def weekly_plan_page(user_id: int):
     st.header("🧠 Piano settimanale → Inserisci nel calendario (previsto)")
 
     today = date.today()
-    default_start = today + timedelta(days=(7 - today.weekday()) % 7)  # prossimo lunedì
+    default_start = today + timedelta(days=(7 - today.weekday()) % 7)
     week_start = st.date_input("Settimana da pianificare (lunedì)", value=default_start)
 
     st.subheader("Allenamenti previsti (scegli tu giorni e orari)")
