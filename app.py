@@ -12,7 +12,7 @@ def main():
     st.set_page_config(page_title="InForma", layout="wide")
     load_styles()
 
-    # ✅ crea le tabelle se non esistono (RISOLVE OperationalError su users/day_logs/etc.)
+    # ✅ DB init: crea tabelle se non esistono
     init_db()
 
     if "user_id" not in st.session_state:
@@ -63,18 +63,27 @@ def main():
         return
 
     # --------------------
-    # SIDEBAR NAV
+    # SIDEBAR NAV (ROBUSTA)
+    # - Non sovrascrive session_state.page quando sei in "Giornata"
     # --------------------
     with st.sidebar:
         st.title("InForma")
 
-        menu_pages = ["Dashboard", "Calendario", "Giornata", "Piano settimanale", "Profilo"]
-        page = st.radio(
-            "Menu",
-            menu_pages,
-            index=menu_pages.index(st.session_state.page) if st.session_state.page in menu_pages else 0,
-        )
-        st.session_state.page = page
+        menu_pages = ["Dashboard", "Calendario", "Piano settimanale", "Profilo"]
+
+        if st.session_state.page in menu_pages:
+            page = st.radio(
+                "Menu",
+                menu_pages,
+                index=menu_pages.index(st.session_state.page),
+            )
+            st.session_state.page = page
+        else:
+            # Es. "Giornata" -> non cambiamo pagina con la radio
+            st.caption(f"Pagina: **{st.session_state.page}**")
+            if st.button("⬅️ Torna al Calendario"):
+                st.session_state.page = "Calendario"
+                st.rerun()
 
         st.divider()
         if st.button("Logout"):
@@ -86,18 +95,18 @@ def main():
     # --------------------
     if st.session_state.page == "Dashboard":
         dashboard_page(uid)
-
     elif st.session_state.page == "Calendario":
         month_calendar_page(uid)
-
-    elif st.session_state.page == "Giornata":
-        day_page(uid, st.session_state.selected_date)
-
     elif st.session_state.page == "Piano settimanale":
         weekly_plan_page(uid)
-
     elif st.session_state.page == "Profilo":
         profile_page(uid)
+    elif st.session_state.page == "Giornata":
+        day_page(uid, st.session_state.selected_date)
+    else:
+        st.warning(f"Pagina sconosciuta: {st.session_state.page}")
+        st.session_state.page = "Dashboard"
+        st.rerun()
 
 
 if __name__ == "__main__":

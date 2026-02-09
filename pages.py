@@ -313,12 +313,13 @@ def month_calendar_page(user_id: int):
 
 
 # ----------------------------
-# Day page
+# Day page (Giornata) - CON TESTO + FOTO
 # ----------------------------
 def day_page(user_id: int, d: date):
     ds = str(d)
     st.header(f"🗓️ Giornata: {ds}")
 
+    # stato giorno
     row = conn.execute(
         "SELECT morning_weight, is_closed FROM day_logs WHERE user_id=? AND date=?",
         (user_id, ds)
@@ -326,7 +327,7 @@ def day_page(user_id: int, d: date):
     morning_weight = row["morning_weight"] if row else None
     is_closed = bool(row["is_closed"]) if row else False
 
-    nav1, nav2, nav3 = st.columns([1, 1, 3])
+    nav1, nav2, _ = st.columns([1, 1, 3])
     with nav1:
         if st.button("⬅️ Giorno precedente"):
             goto_day(d - timedelta(days=1))
@@ -340,6 +341,9 @@ def day_page(user_id: int, d: date):
             upsert_day_log(user_id, d, is_closed=0)
             st.rerun()
 
+    # --------------------
+    # PREVISTO
+    # --------------------
     st.subheader("🗓️ Previsto (pianificato)")
     planned = planned_for_day(user_id, d)
 
@@ -411,9 +415,83 @@ def day_page(user_id: int, d: date):
                     delete_planned_event(user_id, int(r["id"]))
                     st.rerun()
 
+    # --------------------
+    # ✅ PASTO: TESTO / FOTO (stima + salva)
+    # --------------------
+    st.divider()
+    st.subheader("🍽️ Registra pasto (stima calorie)")
+
+    tab_txt, tab_img = st.tabs(["✍️ Da testo", "📷 Da foto"])
+
+    with tab_txt:
+        meal_time = st.text_input("Ora pasto", value="13:00", key=f"meal_time_txt_{ds}", disabled=is_closed)
+        meal_text = st.text_area("Descrivi il pasto", key=f"meal_desc_{ds}", height=110, disabled=is_closed)
+        if st.button("Stima e salva pasto", key=f"meal_est_save_{ds}", disabled=is_closed):
+            if not (meal_text or "").strip():
+                st.error("Scrivi una descrizione del pasto.")
+            else:
+                data = estimate_meal_from_text(meal_text)
+                kcal = float(data.get("total_calories") or 0)
+                desc = str(data.get("description") or meal_text or "Pasto")
+                conn.execute(
+                    "INSERT INTO meals (user_id, date, time, description, calories, raw_json) VALUES (?,?,?,?,?,?)",
+                    (user_id, ds, meal_time, desc, kcal, str(data))
+                )
+                conn.commit()
+                st.success(f"Salvato: {int(round(kcal))} kcal")
+                st.rerun()
+
+    with tab_img:
+        meal_time2 = st.text_input("Ora pasto", value="20:30", key=f"meal_time_img_{ds}", disabled=is_closed)
+        note = st.text_input("Nota (opzionale)", key=f"meal_note_{ds}", disabled=is_closed)
+        up = st.file_uploader(
+            "Carica foto del pasto",
+            type=["png", "jpg", "jpeg"],
+            key=f"meal_photo_{ds}",
+            disabled=is_closed
+        )
+        if st.button("Analizza foto e salva", key=f"meal_photo_save_{ds}", disabled=is_closed):
+            if not up:
+                st.error("Carica una foto.")
+            else:
+                data = analyze_food_photo(up.getvalue(), up.type, meal_time2, note)
+                kcal = float(data.get("total_calories") or 0)
+                desc = str(data.get("description") or "Pasto (foto)")
+                conn.execute(
+                    "INSERT INTO meals (user_id, date, time, description, calories, raw_json) VALUES (?,?,?,?,?,?)",
+                    (user_id, ds, meal_time2, desc, kcal, str(data))
+                )
+                conn.commit()
+                st.success(f"Salvato: {int(round(kcal))} kcal")
+                st.rerun()
+
+    # --------------------
+    # (OPZIONALE) Mostra pasti salvati del giorno
+    # --------------------
+    st.divider()
+    st.subheader("📌 Pasti registrati (oggi)")
+
+    meals = safe_read_sql(
+        "SELECT id, time, description, calories FROM meals WHERE user_id=? AND date=? ORDER BY time",
+        (user_id, ds)
+    )
+    if meals.empty:
+        st.caption("Nessun pasto registrato per questo giorno.")
+    else:
+        for _, r in meals.iterrows():
+            c1, c2 = st.columns([8, 2])
+            with c1:
+                st.markdown(f"**{r['time']}** — {r['description']}")
+                st.caption(f"{kcal_round(r['calories'])} kcal")
+            with c2:
+                if st.button("🗑️", key=f"delmeal_{ds}_{int(r['id'])}", disabled=is_closed):
+                    conn.execute("DELETE FROM meals WHERE user_id=? AND id=?", (user_id, int(r["id"])))
+                    conn.commit()
+                    st.rerun()
+
 
 # ----------------------------
-# Weekly plan
+# Weekly plan (INVARIATO)
 # ----------------------------
 def build_weekly_plan_prompt(profile: dict, week_start: date, workout_slots: pd.DataFrame, last_week_sums: pd.DataFrame) -> str:
     lines = []
@@ -552,7 +630,7 @@ def weekly_plan_page(user_id: int):
     st.header("🧠 Piano settimanale → Inserisci nel calendario (previsto)")
 
     today = date.today()
-    default_start = today + timedelta(days=(7 - today.weekday()) % 7)
+    default_start = today + timedelta(days=(7 - today.weekday()) % 7)  # prossimo lunedì
     week_start = st.date_input("Settimana da pianificare (lunedì)", value=default_start)
 
     st.subheader("Allenamenti previsti (scegli tu giorni e orari)")
