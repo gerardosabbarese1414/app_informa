@@ -39,6 +39,7 @@ def profile_page(user_id: int):
 
     p = get_profile(user_id) or {}
 
+    # goal_date default
     goal_date_default = None
     if p.get("goal_date"):
         try:
@@ -55,24 +56,18 @@ def profile_page(user_id: int):
         age = st.number_input("Età", min_value=10, max_value=100, value=int(p.get("age") or 25), step=1)
     with c3:
         activity_options = ["sedentario", "leggero", "moderato", "attivo", "molto_attivo"]
-        activity_val = (p.get("activity_level") or "leggero").strip().lower()
+        activity_val = str(p.get("activity_level") or "leggero").strip().lower()
         activity_index = activity_options.index(activity_val) if activity_val in activity_options else 1
+        activity = st.selectbox("Livello attività", activity_options, index=activity_index)
 
-        activity = st.selectbox(
-            "Livello attività",
-            activity_options,
-            index=activity_index
-        )
+        # ✅ FIX ROBUSTO goal_type (anche se nel DB è 1, None, ecc.)
+        goal_options = ["dimagrimento", "mantenimento", "massa"]
+        raw_goal = p.get("goal_type")
+        goal_value = str(raw_goal).strip().lower() if raw_goal is not None else "mantenimento"
+        if goal_value not in goal_options:
+            goal_value = "mantenimento"
 
-        goal_options = ["mantenimento", "dimagrimento", "massa"]
-        goal_value = (p.get("goal_type") or "mantenimento").strip().lower()
-        goal_index = goal_options.index(goal_value) if goal_value in goal_options else 0
-
-        goal_type = st.selectbox(
-            "Obiettivo",
-            goal_options,
-            index=goal_index
-        )
+        goal_type = st.selectbox("Obiettivo", goal_options, index=goal_options.index(goal_value))
 
     c4, c5, c6 = st.columns(3)
     with c4:

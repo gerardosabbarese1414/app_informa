@@ -1,11 +1,10 @@
 import streamlit as st
+from datetime import date
 
 from styles import load_styles
-from auth import create_user, verify_login
+from auth_utils import create_user, verify_login
 from profile import profile_page, profile_complete
-from pages import dashboard_page, month_calendar_page, day_page, weekly_plan_page
-
-from datetime import date
+from pages import dashboard_page, month_calendar_page, weekly_plan_page
 
 
 def main():
@@ -82,19 +81,10 @@ def main():
     # --------------------
     if st.session_state.page == "Dashboard":
         dashboard_page(uid)
-
     elif st.session_state.page == "Calendario":
         month_calendar_page(uid)
-
-        # se qualcuno ha già selezionato data via state (es. pulsanti)
-        # puoi aprire direttamente la giornata (opzionale)
-        if st.session_state.get("open_day_now"):
-            st.session_state.open_day_now = False
-            day_page(uid, st.session_state.selected_date)
-
     elif st.session_state.page == "Piano settimanale":
         weekly_plan_page(uid)
-
     elif st.session_state.page == "Profilo":
         profile_page(uid)
 

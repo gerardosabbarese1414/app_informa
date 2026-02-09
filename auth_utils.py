@@ -6,24 +6,26 @@ from database import conn
 
 def _hash_password(pw: str) -> str:
     """
-    Hash semplice (demo). Per produzione vera: bcrypt/argon2.
+    Hash semplice (demo). Per produzione: bcrypt/argon2.
     """
     salt = os.getenv("PW_SALT", "change-me-salt")
     return hashlib.sha256((salt + pw).encode("utf-8")).hexdigest()
 
 
 def create_user(email: str, password: str) -> int:
-    """
-    Crea utente e ritorna user_id.
-    """
     email = (email or "").strip().lower()
     if not email or not password:
         raise ValueError("Email e password obbligatorie")
 
-    h = _hash_password(password)
+    # evita doppioni
+    existing = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+    if existing:
+        raise ValueError("Email già registrata. Prova il login.")
+
+    pw_hash = _hash_password(password)
     conn.execute(
         "INSERT INTO users (email, password_hash, created_at) VALUES (?,?,?)",
-        (email, h, datetime.now().isoformat(timespec="seconds"))
+        (email, pw_hash, datetime.now().isoformat(timespec="seconds"))
     )
     conn.commit()
 
@@ -32,16 +34,13 @@ def create_user(email: str, password: str) -> int:
 
 
 def verify_login(email: str, password: str) -> int | None:
-    """
-    Ritorna user_id se credenziali ok, altrimenti None.
-    """
     email = (email or "").strip().lower()
     if not email or not password:
         return None
 
-    h = _hash_password(password)
+    pw_hash = _hash_password(password)
     row = conn.execute(
         "SELECT id FROM users WHERE email=? AND password_hash=?",
-        (email, h)
+        (email, pw_hash)
     ).fetchone()
     return int(row[0]) if row else None
