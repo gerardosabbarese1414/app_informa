@@ -12,7 +12,7 @@ def main():
     st.set_page_config(page_title="InForma", layout="wide")
     load_styles()
 
-    # ✅ DB init: crea tabelle se non esistono
+    # ✅ crea tabelle se non esistono
     init_db()
 
     if "user_id" not in st.session_state:
@@ -63,8 +63,7 @@ def main():
         return
 
     # --------------------
-    # SIDEBAR NAV (ROBUSTA)
-    # - Non sovrascrive session_state.page quando sei in "Giornata"
+    # SIDEBAR NAV (non sovrascrive "Giornata")
     # --------------------
     with st.sidebar:
         st.title("InForma")
@@ -79,7 +78,6 @@ def main():
             )
             st.session_state.page = page
         else:
-            # Es. "Giornata" -> non cambiamo pagina con la radio
             st.caption(f"Pagina: **{st.session_state.page}**")
             if st.button("⬅️ Torna al Calendario"):
                 st.session_state.page = "Calendario"
@@ -91,7 +89,7 @@ def main():
             st.rerun()
 
     # --------------------
-    # ROUTING PAGES
+    # ROUTING
     # --------------------
     if st.session_state.page == "Dashboard":
         dashboard_page(uid)
@@ -104,7 +102,6 @@ def main():
     elif st.session_state.page == "Giornata":
         day_page(uid, st.session_state.selected_date)
     else:
-        st.warning(f"Pagina sconosciuta: {st.session_state.page}")
         st.session_state.page = "Dashboard"
         st.rerun()
 
