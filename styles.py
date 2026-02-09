@@ -1,94 +1,70 @@
 import streamlit as st
 
+
 def load_styles():
     st.markdown(
         """
         <style>
-          .block-container { padding-top: 1rem; padding-bottom: 3rem; max-width: 1200px; }
-          .stApp { background: radial-gradient(1200px 600px at 20% 0%, rgba(99,102,241,0.18), transparent 60%),
-                          radial-gradient(1200px 600px at 80% 10%, rgba(34,197,94,0.12), transparent 55%); }
+          /* layout */
+          .block-container { padding-top: 1rem; }
 
-          .cal-wrap { margin: 0 auto; }
-          .cal-head {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 10px;
-            margin: 8px 0 8px 0;
-          }
-          .cal-head div {
-            font-weight: 800;
-            opacity: 0.75;
-            padding: 6px 10px;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-          }
+          /* badges net */
+          .badge-ok   { color: #0f5132; background: #d1e7dd; padding: 2px 8px; border-radius: 999px; font-size: 12px; display: inline-block; }
+          .badge-warn { color: #664d03; background: #fff3cd; padding: 2px 8px; border-radius: 999px; font-size: 12px; display: inline-block; }
+          .badge-bad  { color: #842029; background: #f8d7da; padding: 2px 8px; border-radius: 999px; font-size: 12px; display: inline-block; }
 
-          .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+          /* calendar wrapper */
+          .cal-wrap { width: 100%; }
+          .cal-head { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 8px 0 10px 0; }
+          .cal-head div { font-weight: 700; font-size: 14px; opacity: .85; padding-left: 6px; }
 
-          .cal-cell {
-            border: 1px solid rgba(255,255,255,0.10);
-            background: rgba(255,255,255,0.03);
-            border-radius: 18px;
-            padding: 10px 10px;
-            min-height: 128px;
+          /* grid */
+          .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; width: 100%; }
+
+          /* day cell as clickable card */
+          a.cal-cell {
             display: block;
-            color: inherit !important;
+            min-height: 110px;
+            border: 1px solid rgba(120,120,120,.18);
+            border-radius: 14px;
+            padding: 10px 10px 8px 10px;
             text-decoration: none !important;
-            transition: transform .06s ease, background .08s ease, border-color .08s ease;
-            overflow: hidden;
+            color: inherit !important;
+            background: rgba(255,255,255,.5);
+            transition: transform .07s ease, box-shadow .07s ease, border-color .07s ease;
           }
-          .cal-cell:hover {
-            transform: translateY(-2px);
-            background: rgba(255,255,255,0.06);
-            border-color: rgba(255,255,255,0.18);
+          a.cal-cell:hover {
+            transform: translateY(-1px);
+            border-color: rgba(100,100,100,.35);
+            box-shadow: 0 6px 20px rgba(0,0,0,.08);
           }
 
+          /* empty cell */
           .cal-empty {
-            border: 1px dashed rgba(255,255,255,0.08);
-            background: rgba(255,255,255,0.01);
-            border-radius: 18px;
-            min-height: 128px;
+            min-height: 110px;
+            border-radius: 14px;
+            border: 1px dashed rgba(120,120,120,.18);
+            background: rgba(0,0,0,.02);
           }
 
-          .cal-top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-          .cal-daynum { font-weight: 900; font-size: 16px; display:inline-flex; align-items:center; gap:8px; }
+          /* cell content */
+          .cal-top { display:flex; justify-content: space-between; align-items:center; margin-bottom: 6px; }
+          .cal-daynum { font-weight: 800; font-size: 16px; }
+          .cal-dot { font-size: 12px; opacity: .8; }
 
-          .pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 3px 8px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 800;
-            border: 1px solid rgba(255,255,255,0.12);
-            background: rgba(255,255,255,0.04);
-            opacity: 0.95;
-            white-space: nowrap;
+          .cal-meta { font-size: 12px; opacity: .85; line-height: 1.25; }
+          .cal-mini { margin-top: 6px; font-size: 12px; opacity: .9; }
+          .cal-mini div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+          /* today highlight */
+          .cal-today { outline: 2px solid rgba(33, 150, 243, .35); outline-offset: 2px; }
+
+          /* responsive */
+          @media (max-width: 900px){
+            a.cal-cell, .cal-empty { min-height: 90px; padding: 8px; border-radius: 12px; }
+            .cal-daynum { font-size: 15px; }
           }
-          .pill-closed { border-color: rgba(34,197,94,0.25); background: rgba(34,197,94,0.10); }
-          .pill-open   { border-color: rgba(148,163,184,0.20); background: rgba(148,163,184,0.08); }
-
-          .mini { margin-top: 8px; display:grid; gap:6px; font-size:12px; line-height:1.2; opacity:0.92; }
-          .mini div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-          .badge-ok { color: #22c55e; font-weight: 900; }
-          .badge-warn { color: #f59e0b; font-weight: 900; }
-          .badge-bad { color: #ef4444; font-weight: 900; }
-
-          .evt {
-            padding: 4px 8px;
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.10);
-            background: rgba(255,255,255,0.03);
-            font-size: 12px;
-            display: flex;
-            justify-content: space-between;
-            gap: 8px;
-          }
-          .evt b { font-weight: 800; }
         </style>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )

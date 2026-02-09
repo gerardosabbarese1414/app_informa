@@ -1,85 +1,102 @@
 import streamlit as st
-from datetime import date
 
 from styles import load_styles
 from auth import create_user, verify_login
 from profile import profile_page, profile_complete
 from pages import dashboard_page, month_calendar_page, day_page, weekly_plan_page
 
+from datetime import date
+
 
 def main():
     st.set_page_config(page_title="InForma", layout="wide")
     load_styles()
-    st.title("💪 InForma")
 
-    if "uid" not in st.session_state:
-        st.session_state.uid = None
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = None
     if "page" not in st.session_state:
         st.session_state.page = "Dashboard"
     if "selected_date" not in st.session_state:
         st.session_state.selected_date = date.today()
 
-    # LOGIN / REGISTRAZIONE
-    if st.session_state.uid is None:
-        st.subheader("🔐 Login / Registrazione")
-        t1, t2 = st.tabs(["Login", "Registrati"])
+    # --------------------
+    # LOGIN / REGISTER
+    # --------------------
+    if st.session_state.user_id is None:
+        st.title("InForma — Login")
 
-        with t1:
+        tab1, tab2 = st.tabs(["Login", "Registrati"])
+        with tab1:
             email = st.text_input("Email", key="login_email")
-            password = st.text_input("Password", type="password", key="login_pw")
-            if st.button("Login", type="primary"):
-                uid = verify_login(email, password)
+            pw = st.text_input("Password", type="password", key="login_pw")
+            if st.button("Entra", type="primary"):
+                uid = verify_login(email, pw)
                 if uid:
-                    st.session_state.uid = uid
+                    st.session_state.user_id = uid
                     st.rerun()
                 else:
-                    st.error("Credenziali errate")
+                    st.error("Credenziali non valide.")
 
-        with t2:
-            email2 = st.text_input("Email", key="reg_email")
-            pw2 = st.text_input("Password", type="password", key="reg_pw")
-            if st.button("Crea account"):
+        with tab2:
+            email = st.text_input("Email", key="reg_email")
+            pw = st.text_input("Password", type="password", key="reg_pw")
+            if st.button("Crea account", type="primary"):
                 try:
-                    uid = create_user(email2, pw2)
-                    st.success("Account creato ✅ Ora completa il profilo.")
-                    st.session_state.uid = uid
+                    uid = create_user(email, pw)
+                    st.session_state.user_id = uid
+                    st.success("Account creato ✅")
                     st.rerun()
                 except Exception as e:
                     st.error(str(e))
         return
 
-    uid = st.session_state.uid
+    uid = st.session_state.user_id
 
+    # --------------------
     # PROFILO OBBLIGATORIO
+    # --------------------
     if not profile_complete(uid):
         profile_page(uid)
         return
 
-    # SIDEBAR
+    # --------------------
+    # SIDEBAR NAV
+    # --------------------
     with st.sidebar:
-        st.subheader("📌 Menu")
+        st.title("InForma")
         page = st.radio(
-            "Sezione",
-            ["Dashboard", "Calendario", "Giornata", "Piano settimanale", "Profilo", "Logout"]
+            "Menu",
+            ["Dashboard", "Calendario", "Piano settimanale", "Profilo"],
+            index=["Dashboard", "Calendario", "Piano settimanale", "Profilo"].index(st.session_state.page)
+            if st.session_state.page in ["Dashboard", "Calendario", "Piano settimanale", "Profilo"] else 0
         )
         st.session_state.page = page
 
-    page = st.session_state.page
+        st.divider()
+        if st.button("Logout"):
+            st.session_state.user_id = None
+            st.rerun()
 
-    if page == "Dashboard":
+    # --------------------
+    # ROUTING PAGES
+    # --------------------
+    if st.session_state.page == "Dashboard":
         dashboard_page(uid)
-    elif page == "Calendario":
+
+    elif st.session_state.page == "Calendario":
         month_calendar_page(uid)
-    elif page == "Giornata":
-        day_page(uid, st.session_state.selected_date)
-    elif page == "Piano settimanale":
+
+        # se qualcuno ha già selezionato data via state (es. pulsanti)
+        # puoi aprire direttamente la giornata (opzionale)
+        if st.session_state.get("open_day_now"):
+            st.session_state.open_day_now = False
+            day_page(uid, st.session_state.selected_date)
+
+    elif st.session_state.page == "Piano settimanale":
         weekly_plan_page(uid)
-    elif page == "Profilo":
+
+    elif st.session_state.page == "Profilo":
         profile_page(uid)
-    elif page == "Logout":
-        st.query_params.clear()
-        st.session_state.uid = None
-        st.rerun()
 
 
 if __name__ == "__main__":
