@@ -329,6 +329,27 @@ def day_page(user_id: int, d: date):
                 recompute_daily_summary(user_id, d)
                 st.rerun()
 
+    st.subheader("📌 Pasti registrati")
+meals = safe_read_sql(
+    "SELECT id, time, description, calories FROM meals WHERE user_id=? AND date=? ORDER BY time",
+    (user_id, ds)
+)
+
+if meals.empty:
+    st.caption("Nessun pasto registrato.")
+else:
+    for _, r in meals.iterrows():
+        c1, c2 = st.columns([8, 2])
+        with c1:
+            st.markdown(f"**{r['time']}** — {r['description']}")
+            st.caption(f"{kcal_round(r['calories'])} kcal")
+        with c2:
+            if st.button("🗑️", key=f"delmeal_{ds}_{int(r['id'])}", disabled=is_closed):
+                conn.execute("DELETE FROM meals WHERE user_id=? AND id=?", (user_id, int(r["id"])))
+                conn.commit()
+                recompute_daily_summary(user_id, d)
+                st.rerun()
+
     # WORKOUT
     st.divider()
     st.subheader("🏃 Allenamento fatto (stima calorie)")
@@ -375,7 +396,27 @@ def day_page(user_id: int, d: date):
             conn.commit()
             recompute_daily_summary(user_id, d)
             st.rerun()
+st.subheader("📌 Allenamenti registrati")
+workouts = safe_read_sql(
+    "SELECT id, time, description, duration_min, calories_burned FROM workouts WHERE user_id=? AND date=? ORDER BY time",
+    (user_id, ds)
+)
 
+if workouts.empty:
+    st.caption("Nessun allenamento registrato.")
+else:
+    for _, r in workouts.iterrows():
+        c1, c2 = st.columns([8, 2])
+        with c1:
+            dur = f" — {int(r['duration_min'])} min" if pd.notna(r["duration_min"]) else ""
+            st.markdown(f"**{r['time']}** — {r['description']}{dur}")
+            st.caption(f"{kcal_round(r['calories_burned'])} kcal")
+        with c2:
+            if st.button("🗑️", key=f"delw_{ds}_{int(r['id'])}", disabled=is_closed):
+                conn.execute("DELETE FROM workouts WHERE user_id=? AND id=?", (user_id, int(r["id"])))
+                conn.commit()
+                recompute_daily_summary(user_id, d)
+                st.rerun()
 
 # ----------------------------
 # Weekly plan (placeholder)
