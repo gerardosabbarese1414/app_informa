@@ -194,13 +194,14 @@ def dashboard_page(user_id: int):
                    title="Calorie IN/OUT (ultimi 30 giorni)"),
             use_container_width=True
         )
-        st.plotly_chart(px.line(sums.tail(30), x="date", y="net_calories", title="NET (ultimi 30 giorni)"),
-                        use_container_width=True
+        st.plotly_chart(
+            px.line(sums.tail(30), x="date", y="net_calories", title="NET (ultimi 30 giorni)"),
+            use_container_width=True
         )
 
 
 # ----------------------------
-# Month calendar (NO LINK HTML) - usa bottoni Streamlit
+# Month calendar (BOTTONI STREAMLIT, NON LINK HTML)
 # ----------------------------
 def month_calendar_page(user_id: int):
     st.header("📅 Calendario (mese)")
@@ -211,11 +212,11 @@ def month_calendar_page(user_id: int):
 
     c1, c2, c3 = st.columns([1, 1, 2])
     with c1:
-        year = int(st.number_input("Anno", 2020, 2100, st.session_state.selected_date.year, 1))
+        year = int(st.number_input("Anno", 2020, 2100, st.session_state.selected_date.year, 1, key="cal_year"))
     with c2:
-        month = int(st.number_input("Mese", 1, 12, st.session_state.selected_date.month, 1))
+        month = int(st.number_input("Mese", 1, 12, st.session_state.selected_date.month, 1, key="cal_month"))
     with c3:
-        if st.button("📍 Vai a oggi"):
+        if st.button("📍 Vai a oggi", key="cal_today"):
             st.session_state.selected_date = date.today()
             st.rerun()
 
@@ -227,12 +228,11 @@ def month_calendar_page(user_id: int):
     month_matrix = cal.monthcalendar(year, month)
     today = date.today()
 
-    for w, week in enumerate(month_matrix):
+    for week in month_matrix:
         cols = st.columns(7)
         for i, day_num in enumerate(week):
             with cols[i]:
                 if day_num == 0:
-                    st.markdown("&nbsp;", unsafe_allow_html=True)
                     st.markdown("<div style='height:90px;border:1px dashed rgba(120,120,120,.18);border-radius:12px;background:rgba(0,0,0,.02)'></div>", unsafe_allow_html=True)
                     continue
 
@@ -240,11 +240,6 @@ def month_calendar_page(user_id: int):
                 p = fetch_day_preview(user_id, d)
 
                 badge = "✅" if p["closed"] else "•"
-                net_txt = ""
-                if p["net"] is not None:
-                    net_txt = f"NET {kcal_round(p['net'])}"
-
-                # bottone giorno (chiave unica)
                 label = f"{day_num} {badge}"
                 if d == today:
                     label = f"⭐ {label}"
@@ -252,12 +247,11 @@ def month_calendar_page(user_id: int):
                 if st.button(label, key=f"daybtn_{d.isoformat()}"):
                     goto_day(d)
 
-                # mini info sotto
                 info = []
                 if p["weight"] is not None:
                     info.append(f"{float(p['weight']):.1f} kg")
-                if net_txt:
-                    info.append(net_txt)
+                if p["net"] is not None:
+                    info.append(f"NET {kcal_round(p['net'])}")
                 if p["planned"] > 0:
                     info.append(f"🗓️ {p['planned']}")
 
@@ -266,7 +260,7 @@ def month_calendar_page(user_id: int):
 
 
 # ----------------------------
-# Day page (Giornata) - con testo + foto
+# Day page (Giornata) - con TESTO + FOTO + key univoci
 # ----------------------------
 def day_page(user_id: int, d: date):
     ds = str(d)
@@ -280,19 +274,19 @@ def day_page(user_id: int, d: date):
 
     nav1, nav2, nav3 = st.columns([1, 1, 3])
     with nav1:
-        if st.button("⬅️ Giorno precedente"):
+        if st.button("⬅️ Giorno precedente", key=f"prev_{ds}"):
             goto_day(d - timedelta(days=1))
     with nav2:
-        if st.button("Giorno successivo ➡️"):
+        if st.button("Giorno successivo ➡️", key=f"next_{ds}"):
             goto_day(d + timedelta(days=1))
     with nav3:
-        if st.button("⬅️ Torna al Calendario"):
+        if st.button("⬅️ Torna al Calendario", key=f"back_cal_{ds}"):
             st.session_state.page = "Calendario"
             st.rerun()
 
     if is_closed:
         st.info("Giornata chiusa. Puoi riaprirla per modificare.")
-        if st.button("🔓 Riapri giornata"):
+        if st.button("🔓 Riapri giornata", key=f"reopen_{ds}"):
             upsert_day_log(user_id, d, is_closed=0)
             st.rerun()
 
@@ -361,7 +355,7 @@ def day_page(user_id: int, d: date):
                     delete_planned_event(user_id, int(r["id"]))
                     st.rerun()
 
-    # ✅ PASTO: TESTO / FOTO
+    # PASTO: TESTO / FOTO
     st.divider()
     st.subheader("🍽️ Registra pasto (stima calorie)")
 
@@ -404,7 +398,7 @@ def day_page(user_id: int, d: date):
                 st.success(f"Salvato: {int(round(kcal))} kcal")
                 st.rerun()
 
-    # mostra pasti salvati
+    # Pasti salvati
     st.divider()
     st.subheader("📌 Pasti registrati (oggi)")
     meals = safe_read_sql(
@@ -427,26 +421,8 @@ def day_page(user_id: int, d: date):
 
 
 # ----------------------------
-# Weekly plan (lasciato come nel tuo progetto)
+# Weekly plan - lascia il tuo file originale se vuoi (qui placeholder)
 # ----------------------------
-def build_weekly_plan_prompt(profile: dict, week_start: date, workout_slots: pd.DataFrame, last_week_sums: pd.DataFrame) -> str:
-    lines = []
-    lines.append("Sei un coach nutrizionale/fitness. Crea un piano settimanale pratico e sostenibile.")
-    lines.append("")
-    lines.append("VINCOLI IMPORTANTI:")
-    lines.append("- Distribuisci i pasti su ogni giorno con orari (colazione, pranzo, cena + eventuali spuntini).")
-    lines.append("- Coerenza con obiettivo e data obiettivo.")
-    lines.append("- Inserisci kcal stimate per ogni pasto e un totale giornaliero stimato.")
-    lines.append("- Non cambiare i giorni/orari delle sedute allenamento scelte dall'utente.")
-    lines.append("")
-    lines.append(f"SETTIMANA START (lunedì): {week_start}")
-    lines.append("")
-    lines.append("PROFILO UTENTE:")
-    for k in ["start_weight", "height_cm", "sex", "age", "activity_level", "goal_type", "goal_weight", "goal_date", "body_fat", "lean_mass"]:
-        lines.append(f"- {k}: {profile.get(k)}")
-    return "\n".join(lines)
-
-
 def weekly_plan_page(user_id: int):
-    st.header("🧠 Piano settimanale (work in progress)")
-    st.caption("Questa sezione resta come nel tuo progetto; se vuoi la reintegro completa dimmelo.")
+    st.header("🧠 Piano settimanale")
+    st.caption("Se vuoi reintegro completo weekly_plan come nel tuo file originale, dimmelo.")

@@ -12,7 +12,7 @@ def main():
     st.set_page_config(page_title="InForma", layout="wide")
     load_styles()
 
-    # ✅ crea tabelle se non esistono
+    # ✅ DB init (risolve sqlite OperationalError: no such table)
     init_db()
 
     if "user_id" not in st.session_state:
@@ -32,7 +32,7 @@ def main():
         with tab1:
             email = st.text_input("Email", key="login_email")
             pw = st.text_input("Password", type="password", key="login_pw")
-            if st.button("Entra", type="primary"):
+            if st.button("Entra", type="primary", key="btn_login"):
                 uid = verify_login(email, pw)
                 if uid:
                     st.session_state.user_id = uid
@@ -43,7 +43,7 @@ def main():
         with tab2:
             email = st.text_input("Email", key="reg_email")
             pw = st.text_input("Password", type="password", key="reg_pw")
-            if st.button("Crea account", type="primary"):
+            if st.button("Crea account", type="primary", key="btn_register"):
                 try:
                     uid = create_user(email, pw)
                     st.session_state.user_id = uid
@@ -63,7 +63,7 @@ def main():
         return
 
     # --------------------
-    # SIDEBAR NAV (non sovrascrive "Giornata")
+    # SIDEBAR NAV (robusta)
     # --------------------
     with st.sidebar:
         st.title("InForma")
@@ -75,16 +75,17 @@ def main():
                 "Menu",
                 menu_pages,
                 index=menu_pages.index(st.session_state.page),
+                key="sidebar_menu_radio"
             )
             st.session_state.page = page
         else:
             st.caption(f"Pagina: **{st.session_state.page}**")
-            if st.button("⬅️ Torna al Calendario"):
+            if st.button("⬅️ Torna al Calendario", key="sidebar_back_cal"):
                 st.session_state.page = "Calendario"
                 st.rerun()
 
         st.divider()
-        if st.button("Logout"):
+        if st.button("Logout", key="btn_logout"):
             st.session_state.user_id = None
             st.rerun()
 
