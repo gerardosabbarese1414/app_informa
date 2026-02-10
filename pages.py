@@ -184,10 +184,9 @@ def month_calendar_page(user_id: int):
     for i, h in enumerate(headers):
         hcols[i].markdown(f"**{h}**")
 
-    month_matrix = cal.monthcalendar(year, month)  # Monday-first
+    month_matrix = cal.monthcalendar(year, month)
     today = date.today()
 
-    # scope CSS solo qui
     st.markdown("<div class='cal-grid-scope'>", unsafe_allow_html=True)
 
     for week in month_matrix:
@@ -255,11 +254,18 @@ def day_page(user_id: int, d: date):
             st.session_state.page = "Calendario"
             st.rerun()
 
-    # Peso + chiusura
+    # Peso + chiusura + riepilogo
     st.subheader("⚖️ Peso e stato giornata")
     c1, c2, c3, c4 = st.columns([2, 2, 2, 3])
     with c1:
-        w = st.number_input("Peso (kg)", min_value=0.0, value=float(morning_weight or 0.0), step=0.1, key=f"w_{ds}", disabled=is_closed)
+        w = st.number_input(
+            "Peso (kg)",
+            min_value=0.0,
+            value=float(morning_weight or 0.0),
+            step=0.1,
+            key=f"w_{ds}",
+            disabled=is_closed
+        )
     with c2:
         if st.button("💾 Salva peso", key=f"save_w_{ds}", disabled=is_closed):
             upsert_day_log(user_id, d, morning_weight=float(w) if w > 0 else None)
@@ -329,26 +335,27 @@ def day_page(user_id: int, d: date):
                 recompute_daily_summary(user_id, d)
                 st.rerun()
 
+    # ✅ Pasti registrati (DENTRO day_page)
     st.subheader("📌 Pasti registrati")
-meals = safe_read_sql(
-    "SELECT id, time, description, calories FROM meals WHERE user_id=? AND date=? ORDER BY time",
-    (user_id, ds)
-)
+    meals = safe_read_sql(
+        "SELECT id, time, description, calories FROM meals WHERE user_id=? AND date=? ORDER BY time",
+        (user_id, ds)
+    )
 
-if meals.empty:
-    st.caption("Nessun pasto registrato.")
-else:
-    for _, r in meals.iterrows():
-        c1, c2 = st.columns([8, 2])
-        with c1:
-            st.markdown(f"**{r['time']}** — {r['description']}")
-            st.caption(f"{kcal_round(r['calories'])} kcal")
-        with c2:
-            if st.button("🗑️", key=f"delmeal_{ds}_{int(r['id'])}", disabled=is_closed):
-                conn.execute("DELETE FROM meals WHERE user_id=? AND id=?", (user_id, int(r["id"])))
-                conn.commit()
-                recompute_daily_summary(user_id, d)
-                st.rerun()
+    if meals.empty:
+        st.caption("Nessun pasto registrato.")
+    else:
+        for _, r in meals.iterrows():
+            col_a, col_b = st.columns([8, 2])
+            with col_a:
+                st.markdown(f"**{r['time']}** — {r['description']}")
+                st.caption(f"{kcal_round(r['calories'])} kcal")
+            with col_b:
+                if st.button("🗑️", key=f"delmeal_{ds}_{int(r['id'])}", disabled=is_closed):
+                    conn.execute("DELETE FROM meals WHERE user_id=? AND id=?", (user_id, int(r["id"])))
+                    conn.commit()
+                    recompute_daily_summary(user_id, d)
+                    st.rerun()
 
     # WORKOUT
     st.divider()
@@ -396,27 +403,30 @@ else:
             conn.commit()
             recompute_daily_summary(user_id, d)
             st.rerun()
-st.subheader("📌 Allenamenti registrati")
-workouts = safe_read_sql(
-    "SELECT id, time, description, duration_min, calories_burned FROM workouts WHERE user_id=? AND date=? ORDER BY time",
-    (user_id, ds)
-)
 
-if workouts.empty:
-    st.caption("Nessun allenamento registrato.")
-else:
-    for _, r in workouts.iterrows():
-        c1, c2 = st.columns([8, 2])
-        with c1:
-            dur = f" — {int(r['duration_min'])} min" if pd.notna(r["duration_min"]) else ""
-            st.markdown(f"**{r['time']}** — {r['description']}{dur}")
-            st.caption(f"{kcal_round(r['calories_burned'])} kcal")
-        with c2:
-            if st.button("🗑️", key=f"delw_{ds}_{int(r['id'])}", disabled=is_closed):
-                conn.execute("DELETE FROM workouts WHERE user_id=? AND id=?", (user_id, int(r["id"])))
-                conn.commit()
-                recompute_daily_summary(user_id, d)
-                st.rerun()
+    # ✅ Allenamenti registrati (DENTRO day_page)
+    st.subheader("📌 Allenamenti registrati")
+    workouts = safe_read_sql(
+        "SELECT id, time, description, duration_min, calories_burned FROM workouts WHERE user_id=? AND date=? ORDER BY time",
+        (user_id, ds)
+    )
+
+    if workouts.empty:
+        st.caption("Nessun allenamento registrato.")
+    else:
+        for _, r in workouts.iterrows():
+            col_a, col_b = st.columns([8, 2])
+            with col_a:
+                dur = f" — {int(r['duration_min'])} min" if pd.notna(r["duration_min"]) else ""
+                st.markdown(f"**{r['time']}** — {r['description']}{dur}")
+                st.caption(f"{kcal_round(r['calories_burned'])} kcal")
+            with col_b:
+                if st.button("🗑️", key=f"delw_{ds}_{int(r['id'])}", disabled=is_closed):
+                    conn.execute("DELETE FROM workouts WHERE user_id=? AND id=?", (user_id, int(r["id"])))
+                    conn.commit()
+                    recompute_daily_summary(user_id, d)
+                    st.rerun()
+
 
 # ----------------------------
 # Weekly plan (placeholder)
