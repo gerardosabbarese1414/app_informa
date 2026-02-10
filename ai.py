@@ -2,7 +2,7 @@ import os
 import json
 import base64
 import time
-from typing import Any
+from typing import Any, Callable
 
 import streamlit as st
 from openai import OpenAI
@@ -10,6 +10,9 @@ from openai import OpenAI
 from utils import heuristic_meal_kcal, heuristic_workout_kcal
 
 
+# ----------------------------
+# OpenAI client helpers
+# ----------------------------
 def _get_api_key() -> str | None:
     # Streamlit Cloud: st.secrets; locale: env var
     if "OPENAI_API_KEY" in st.secrets:
@@ -33,7 +36,7 @@ def explain_openai_error(e: Exception) -> str:
     return f"Errore OpenAI: {msg}"
 
 
-def _retry(fn, tries=3, base_sleep=1.0):
+def _retry(fn: Callable[[], Any], tries: int = 3, base_sleep: float = 1.0):
     last = None
     for i in range(tries):
         try:
@@ -44,26 +47,44 @@ def _retry(fn, tries=3, base_sleep=1.0):
     raise last
 
 
-def _safe_json(text: str) -> dict[str, Any]:
-    # prova a estrarre JSON anche se il modello aggiunge testo
-    text = (text or "").strip()
-    if not text:
-        return {}
-    try:
-        return json.loads(text)
-    except Exception:
-        # heuristica: cerca prima { ... }
-        s = text.find("{")
-        t = text.rfind("}")
-        if s != -1 and t != -1 and t > s:
-            try:
-                return json.loads(text[s:t+1])
-            except Exception:
-                return {}
-    return {}
+def _json_schema_meal() -> dict:
+    return {
+        "type": "json_schema",
+        "name": "meal_estimate",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "total_calories": {"type": "number"},
+                "description": {"type": "string"},
+                "notes": {"type": "string"},
+            },
+            "required": ["total_calories", "description", "notes"],
+        },
+    }
 
 
-# --------- MEAL TEXT ---------
+def _json_schema_workout() -> dict:
+    return {
+        "type": "json_schema",
+        "name": "workout_estimate",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "calories_burned": {"type": "number"},
+                "notes": {"type": "string"},
+            },
+            "required": ["calories_burned", "notes"],
+        },
+    }
+
+
+# ----------------------------
+# MEAL (free text)
+# ----------------------------
 def estimate_meal_from_text(text: str) -> dict:
     text = (text or "").strip()
     if not text:
@@ -77,27 +98,39 @@ def estimate_meal_from_text(text: str) -> dict:
                 {
                     "role": "user",
                     "content": (
-                        "Stima le calorie del pasto descritto. "
-                        "Rispondi SOLO JSON con chiavi: total_calories (numero), description (stringa), notes (stringa breve). "
+                        "Stima le calorie del pasto descritto.\n"
+                        "Se mancano quantità/dettagli, fai assunzioni ragionevoli (porzioni standard) e scrivile in notes.\n"
+                        "Mantieni description breve e concreta.\n"
                         f"Pasto: {text}"
                     ),
                 }
             ],
+            # ✅ Structured Outputs: JSON sempre valido e conforme allo schema
+            text={"format": _json_schema_meal()},
         )
         out_text = getattr(resp, "output_text", None) or ""
-        data = _safe_json(out_text)
-        if "total_calories" not in data:
-            data = {"total_calories": heuristic_meal_kcal(text), "description": text, "notes": "Fallback euristico."}
+        data = json.loads(out_text)
+
+        # normalizza
+        tc = float(data.get("total_calories", 0) or 0)
+        data["total_calories"] = max(0.0, tc)
+        data["description"] = str(data.get("description", "") or "").strip()
+        data["notes"] = str(data.get("notes", "") or "").strip()
         return data
 
     try:
         return _retry(_call)
     except Exception:
-        # fallback hard
-        return {"total_calories": heuristic_meal_kcal(text), "description": text, "notes": "Fallback: OpenAI non disponibile."}
+        return {
+            "total_calories": heuristic_meal_kcal(text),
+            "description": text,
+            "notes": "Fallback: OpenAI non disponibile.",
+        }
 
 
-# --------- WORKOUT TEXT ---------
+# ----------------------------
+# WORKOUT (free text)
+# ----------------------------
 def estimate_workout_from_text(text: str, weight_kg: float | None, height_cm: float | None) -> dict:
     text = (text or "").strip()
     if not text:
@@ -111,19 +144,23 @@ def estimate_workout_from_text(text: str, weight_kg: float | None, height_cm: fl
                 {
                     "role": "user",
                     "content": (
-                        "Stima le calorie bruciate per l'allenamento. "
-                        "Rispondi SOLO JSON con chiavi: calories_burned (numero), notes (stringa breve). "
-                        f"Contesto: peso_kg={weight_kg}, altezza_cm={height_cm}. "
+                        "Stima le calorie bruciate per l'allenamento descritto.\n"
+                        "Se mancano durata/intensità, fai assunzioni ragionevoli e scrivile in notes.\n"
+                        "Usa il contesto antropometrico come supporto, se utile.\n"
+                        f"Contesto: peso_kg={weight_kg}, altezza_cm={height_cm}.\n"
                         f"Allenamento: {text}"
                     ),
                 }
             ],
+            # ✅ Structured Outputs
+            text={"format": _json_schema_workout()},
         )
         out_text = getattr(resp, "output_text", None) or ""
-        data = _safe_json(out_text)
-        if "calories_burned" not in data:
-            # fallback: prova a dedurre durata dal testo? (semplice)
-            data = {"calories_burned": 0, "notes": "Fallback."}
+        data = json.loads(out_text)
+
+        cb = float(data.get("calories_burned", 0) or 0)
+        data["calories_burned"] = max(0.0, cb)
+        data["notes"] = str(data.get("notes", "") or "").strip()
         return data
 
     try:
@@ -135,13 +172,19 @@ def estimate_workout_from_text(text: str, weight_kg: float | None, height_cm: fl
             if token.isdigit():
                 dur = int(token)
                 break
-        return {"calories_burned": heuristic_workout_kcal(text, dur), "notes": "Fallback: OpenAI non disponibile."}
+        return {
+            "calories_burned": heuristic_workout_kcal(text, dur),
+            "notes": "Fallback: OpenAI non disponibile.",
+        }
 
 
-# --------- FOOD PHOTO (VISION) ---------
+# ----------------------------
+# FOOD PHOTO (vision)
+# ----------------------------
 def analyze_food_photo(image_bytes: bytes, mime: str, time_str: str, note: str) -> dict:
     """
     Vision: analizza la foto + contesto (orario + nota).
+    Ritorna SEMPRE JSON conforme allo schema meal_estimate.
     """
     if not image_bytes:
         return {"total_calories": 0, "description": "", "notes": "Nessuna immagine."}
@@ -160,8 +203,8 @@ def analyze_food_photo(image_bytes: bytes, mime: str, time_str: str, note: str) 
                         {
                             "type": "input_text",
                             "text": (
-                                "Analizza la foto del pasto e stima le calorie. "
-                                "Rispondi SOLO JSON con chiavi: total_calories (numero), description (stringa), notes (stringa breve). "
+                                "Analizza la foto del pasto e stima le calorie.\n"
+                                "Se non riconosci con certezza, fai una stima prudente e scrivi le assunzioni in notes.\n"
                                 f"Orario: {time_str}. Nota: {note or ''}."
                             ),
                         },
@@ -169,34 +212,19 @@ def analyze_food_photo(image_bytes: bytes, mime: str, time_str: str, note: str) 
                     ],
                 }
             ],
+            # ✅ Structured Outputs
+            text={"format": _json_schema_meal()},
         )
         out_text = getattr(resp, "output_text", None) or ""
-        data = _safe_json(out_text)
-        if "total_calories" not in data:
-            data = {"total_calories": 600, "description": "Pasto (foto)", "notes": "Fallback (parse)."}
+        data = json.loads(out_text)
+
+        tc = float(data.get("total_calories", 0) or 0)
+        data["total_calories"] = max(0.0, tc)
+        data["description"] = str(data.get("description", "") or "").strip()
+        data["notes"] = str(data.get("notes", "") or "").strip()
         return data
 
     try:
         return _retry(_call)
     except Exception:
         return {"total_calories": 600, "description": "Pasto (foto)", "notes": "Fallback: OpenAI non disponibile."}
-
-
-# --------- WEEKLY PLAN (TEXT) ---------
-def generate_weekly_plan(prompt: str) -> str:
-    prompt = (prompt or "").strip()
-    if not prompt:
-        return "Prompt vuoto."
-
-    def _call():
-        client = _client()
-        resp = client.responses.create(
-            model="gpt-4.1-mini",
-            input=[{"role": "user", "content": prompt}],
-        )
-        return (getattr(resp, "output_text", None) or "").strip()
-
-    try:
-        return _retry(_call)
-    except Exception as e:
-        return f"Non riesco a generare il piano ora (OpenAI). Dettagli: {explain_openai_error(e)}"
