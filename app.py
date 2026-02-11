@@ -2,18 +2,14 @@ import streamlit as st
 from datetime import date
 
 from styles import load_styles
-from database import init_db
 from auth_utils import create_user, verify_login
 from profile import profile_page, profile_complete
-from pages import dashboard_page, month_calendar_page, weekly_plan_page, day_page
+from router import render as route_render
 
 
 def main():
     st.set_page_config(page_title="InForma", layout="wide")
     load_styles()
-
-    # ✅ DB init (risolve sqlite OperationalError: no such table)
-    init_db()
 
     if "user_id" not in st.session_state:
         st.session_state.user_id = None
@@ -32,7 +28,7 @@ def main():
         with tab1:
             email = st.text_input("Email", key="login_email")
             pw = st.text_input("Password", type="password", key="login_pw")
-            if st.button("Entra", type="primary", key="btn_login"):
+            if st.button("Entra", type="primary"):
                 uid = verify_login(email, pw)
                 if uid:
                     st.session_state.user_id = uid
@@ -43,7 +39,7 @@ def main():
         with tab2:
             email = st.text_input("Email", key="reg_email")
             pw = st.text_input("Password", type="password", key="reg_pw")
-            if st.button("Crea account", type="primary", key="btn_register"):
+            if st.button("Crea account", type="primary"):
                 try:
                     uid = create_user(email, pw)
                     st.session_state.user_id = uid
@@ -63,48 +59,24 @@ def main():
         return
 
     # --------------------
-    # SIDEBAR NAV (robusta)
+    # SIDEBAR NAV
     # --------------------
     with st.sidebar:
         st.title("InForma")
-
-        menu_pages = ["Dashboard", "Calendario", "Piano settimanale", "Profilo"]
-
-        if st.session_state.page in menu_pages:
-            page = st.radio(
-                "Menu",
-                menu_pages,
-                index=menu_pages.index(st.session_state.page),
-                key="sidebar_menu_radio"
-            )
-            st.session_state.page = page
-        else:
-            st.caption(f"Pagina: **{st.session_state.page}**")
-            if st.button("⬅️ Torna al Calendario", key="sidebar_back_cal"):
-                st.session_state.page = "Calendario"
-                st.rerun()
+        # Note: Giornata is reachable via Calendario, but keep it selectable for debugging.
+        options = ["Dashboard", "Calendario", "Giornata", "Piano settimanale", "Profilo"]
+        page = st.radio("Menu", options, index=options.index(st.session_state.page) if st.session_state.page in options else 0)
+        st.session_state.page = page
 
         st.divider()
-        if st.button("Logout", key="btn_logout"):
+        if st.button("Logout"):
             st.session_state.user_id = None
             st.rerun()
 
     # --------------------
     # ROUTING
     # --------------------
-    if st.session_state.page == "Dashboard":
-        dashboard_page(uid)
-    elif st.session_state.page == "Calendario":
-        month_calendar_page(uid)
-    elif st.session_state.page == "Piano settimanale":
-        weekly_plan_page(uid)
-    elif st.session_state.page == "Profilo":
-        profile_page(uid)
-    elif st.session_state.page == "Giornata":
-        day_page(uid, st.session_state.selected_date)
-    else:
-        st.session_state.page = "Dashboard"
-        st.rerun()
+    route_render(uid)
 
 
 if __name__ == "__main__":
