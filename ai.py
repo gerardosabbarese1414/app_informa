@@ -11,9 +11,6 @@ from openai import OpenAI
 from utils import heuristic_meal_kcal, heuristic_workout_kcal
 
 
-# ----------------------------
-# OpenAI client
-# ----------------------------
 def _get_api_key() -> Optional[str]:
     try:
         if "OPENAI_API_KEY" in st.secrets:
@@ -26,7 +23,7 @@ def _get_api_key() -> Optional[str]:
 def _client() -> OpenAI:
     api_key = _get_api_key()
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY mancante. Impostala in st.secrets oppure come env var.")
+        raise RuntimeError("OPENAI_API_KEY mancante (st.secrets o env var).")
     return OpenAI(api_key=api_key)
 
 
@@ -37,7 +34,7 @@ def explain_openai_error(e: Exception) -> str:
     if "429" in msg or "RateLimit" in msg or "rate limit" in msg.lower():
         return "Rate limit/quota (429)."
     if "403" in msg:
-        return "Accesso negato (403) — progetto/chiave senza permessi."
+        return "Accesso negato (403)."
     return msg
 
 
@@ -56,12 +53,8 @@ def _err_to_notes(e: Exception) -> str:
     return f"Fallback: OpenAI non disponibile. Dettagli: {explain_openai_error(e)}"
 
 
-# ----------------------------
-# Structured Outputs schemas
-# ----------------------------
 def _meal_schema() -> dict:
     return {
-        "type": "json_schema",
         "name": "meal_estimate",
         "strict": True,
         "schema": {
@@ -79,7 +72,6 @@ def _meal_schema() -> dict:
 
 def _workout_schema() -> dict:
     return {
-        "type": "json_schema",
         "name": "workout_estimate",
         "strict": True,
         "schema": {
@@ -97,16 +89,13 @@ def _workout_schema() -> dict:
 def _safe_float(x: Any, default: float = 0.0) -> float:
     try:
         v = float(x)
-        if v != v:  # NaN
+        if v != v:
             return default
         return v
     except Exception:
         return default
 
 
-# ----------------------------
-# MEAL from free text
-# ----------------------------
 def estimate_meal_from_text(text: str) -> dict:
     text = (text or "").strip()
     if not text:
@@ -114,9 +103,11 @@ def estimate_meal_from_text(text: str) -> dict:
 
     def _call():
         client = _client()
-        resp = client.responses.create(
+
+        # Chat Completions + Structured Outputs (json_schema)
+        resp = client.chat.completions.create(
             model="gpt-4.1-mini",
-            input=[
+            messages=[
                 {
                     "role": "user",
                     "content": (
@@ -130,15 +121,15 @@ def estimate_meal_from_text(text: str) -> dict:
                     ),
                 }
             ],
-            text={"format": _meal_schema()},
+            response_format={"type": "json_schema", "json_schema": _meal_schema()},
         )
-        out = getattr(resp, "output_text", None) or ""
-        data = json.loads(out)
+
+        content = resp.choices[0].message.content or "{}"
+        data = json.loads(content)
 
         tc = max(0.0, _safe_float(data.get("total_calories", 0), 0.0))
         desc = str(data.get("description", "") or "").strip() or text
         notes = str(data.get("notes", "") or "").strip()
-
         return {"total_calories": tc, "description": desc, "notes": notes}
 
     try:
@@ -151,9 +142,6 @@ def estimate_meal_from_text(text: str) -> dict:
         }
 
 
-# ----------------------------
-# WORKOUT from free text
-# ----------------------------
 def estimate_workout_from_text(text: str, weight_kg: Optional[float], height_cm: Optional[float]) -> dict:
     text = (text or "").strip()
     if not text:
@@ -161,9 +149,9 @@ def estimate_workout_from_text(text: str, weight_kg: Optional[float], height_cm:
 
     def _call():
         client = _client()
-        resp = client.responses.create(
+        resp = client.chat.completions.create(
             model="gpt-4.1-mini",
-            input=[
+            messages=[
                 {
                     "role": "user",
                     "content": (
@@ -174,10 +162,11 @@ def estimate_workout_from_text(text: str, weight_kg: Optional[float], height_cm:
                     ),
                 }
             ],
-            text={"format": _workout_schema()},
+            response_format={"type": "json_schema", "json_schema": _workout_schema()},
         )
-        out = getattr(resp, "output_text", None) or ""
-        data = json.loads(out)
+
+        content = resp.choices[0].message.content or "{}"
+        data = json.loads(content)
 
         cb = max(0.0, _safe_float(data.get("calories_burned", 0), 0.0))
         notes = str(data.get("notes", "") or "").strip()
@@ -197,9 +186,6 @@ def estimate_workout_from_text(text: str, weight_kg: Optional[float], height_cm:
         }
 
 
-# ----------------------------
-# FOOD PHOTO (vision)
-# ----------------------------
 def analyze_food_photo(image_bytes: bytes, mime: str, time_str: str, note: str) -> dict:
     if not image_bytes:
         return {"total_calories": 0.0, "description": "", "notes": "Nessuna immagine."}
@@ -210,30 +196,30 @@ def analyze_food_photo(image_bytes: bytes, mime: str, time_str: str, note: str) 
 
     def _call():
         client = _client()
-        resp = client.responses.create(
+        resp = client.chat.completions.create(
             model="gpt-4.1-mini",
-            input=[
+            messages=[
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "input_text",
+                            "type": "text",
                             "text": (
                                 "Analizza la foto del cibo/bevanda e stima le calorie.\n"
                                 "Se non sei sicuro, fai una stima prudente e scrivi le assunzioni in notes.\n"
-                                "Restituisci description breve.\n\n"
                                 f"Orario: {time_str}\n"
                                 f"Nota: {note or ''}"
                             ),
                         },
-                        {"type": "input_image", "image_url": data_url},
+                        {"type": "image_url", "image_url": {"url": data_url}},
                     ],
                 }
             ],
-            text={"format": _meal_schema()},
+            response_format={"type": "json_schema", "json_schema": _meal_schema()},
         )
-        out = getattr(resp, "output_text", None) or ""
-        data = json.loads(out)
+
+        content = resp.choices[0].message.content or "{}"
+        data = json.loads(content)
 
         tc = max(0.0, _safe_float(data.get("total_calories", 0), 0.0))
         desc = str(data.get("description", "") or "").strip() or "Pasto (foto)"
@@ -246,9 +232,6 @@ def analyze_food_photo(image_bytes: bytes, mime: str, time_str: str, note: str) 
         return {"total_calories": 0.0, "description": "Pasto (foto)", "notes": _err_to_notes(e)}
 
 
-# ----------------------------
-# WEEKLY PLAN (text)
-# ----------------------------
 def generate_weekly_plan(prompt: str) -> str:
     prompt = (prompt or "").strip()
     if not prompt:
@@ -256,11 +239,11 @@ def generate_weekly_plan(prompt: str) -> str:
 
     def _call():
         client = _client()
-        resp = client.responses.create(
+        resp = client.chat.completions.create(
             model="gpt-4.1-mini",
-            input=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": prompt}],
         )
-        return (getattr(resp, "output_text", None) or "").strip()
+        return (resp.choices[0].message.content or "").strip()
 
     try:
         return _retry(_call)
