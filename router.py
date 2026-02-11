@@ -1,10 +1,10 @@
 import streamlit as st
 from datetime import date
 
-from pages.dashboard import render as dashboard_render
-from pages.calendar_month import render as calendar_render
-from pages.day import render as day_render
-from pages.weekly_plan import render as weekly_render
+from views.dashboard import render as dashboard_render
+from views.calendar_month import render as calendar_render
+from views.day import render as day_render
+from views.weekly_plan import render as weekly_render
 from profile import profile_page
 
 def render(user_id: int):

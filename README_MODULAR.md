@@ -9,10 +9,10 @@ Questa versione spezza il vecchio `pages.py` in moduli piccoli.
 - `router.py` (seleziona e renderizza la pagina richiesta)
 
 ## Pagine
-- `pages/calendar_month.py`
-- `pages/day.py`
-- `pages/dashboard.py`
-- `pages/weekly_plan.py`
+- `views/calendar_month.py`
+- `views/day.py`
+- `views/dashboard.py`
+- `views/weekly_plan.py`
 
 ## Componenti (sezioni)
 - `components/planned_section.py`
