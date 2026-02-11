@@ -12,10 +12,9 @@ from utils import heuristic_meal_kcal, heuristic_workout_kcal
 
 
 # ----------------------------
-# Client + retry
+# OpenAI client
 # ----------------------------
 def _get_api_key() -> Optional[str]:
-    # Streamlit Cloud: st.secrets; locale: env var
     try:
         if "OPENAI_API_KEY" in st.secrets:
             return st.secrets["OPENAI_API_KEY"]
@@ -27,8 +26,19 @@ def _get_api_key() -> Optional[str]:
 def _client() -> OpenAI:
     api_key = _get_api_key()
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY mancante. Impostala in Streamlit Secrets o env var.")
+        raise RuntimeError("OPENAI_API_KEY mancante. Impostala in st.secrets oppure come env var.")
     return OpenAI(api_key=api_key)
+
+
+def explain_openai_error(e: Exception) -> str:
+    msg = str(e)
+    if "401" in msg or "Authentication" in msg:
+        return "API key non valida/mancante (401)."
+    if "429" in msg or "RateLimit" in msg or "rate limit" in msg.lower():
+        return "Rate limit/quota (429)."
+    if "403" in msg:
+        return "Accesso negato (403) — progetto/chiave senza permessi."
+    return msg
 
 
 def _retry(fn: Callable[[], Any], tries: int = 3, base_sleep: float = 0.8):
@@ -43,16 +53,11 @@ def _retry(fn: Callable[[], Any], tries: int = 3, base_sleep: float = 0.8):
 
 
 def _err_to_notes(e: Exception) -> str:
-    msg = str(e)
-    if "401" in msg or "Authentication" in msg:
-        return "Fallback: OpenAI key non valida/mancante (401)."
-    if "429" in msg or "Rate limit" in msg or "RateLimit" in msg:
-        return "Fallback: OpenAI rate limit/quota (429)."
-    return f"Fallback: Errore OpenAI: {msg}"
+    return f"Fallback: OpenAI non disponibile. Dettagli: {explain_openai_error(e)}"
 
 
 # ----------------------------
-# JSON Schemas (Structured Outputs)
+# Structured Outputs schemas
 # ----------------------------
 def _meal_schema() -> dict:
     return {
@@ -103,10 +108,6 @@ def _safe_float(x: Any, default: float = 0.0) -> float:
 # MEAL from free text
 # ----------------------------
 def estimate_meal_from_text(text: str) -> dict:
-    """
-    Stima kcal da descrizione libera (testo).
-    Ritorna SEMPRE dict: {total_calories, description, notes}
-    """
     text = (text or "").strip()
     if not text:
         return {"total_calories": 0.0, "description": "", "notes": "Nessun testo."}
@@ -120,36 +121,29 @@ def estimate_meal_from_text(text: str) -> dict:
                     "role": "user",
                     "content": (
                         "Stima le calorie del cibo/bevanda descritti.\n"
-                        "Se mancano quantità o dettagli, fai assunzioni ragionevoli (porzioni standard) "
+                        "Se mancano quantità/dettagli, fai assunzioni ragionevoli (porzioni standard) "
                         "e scrivile in notes.\n"
-                        "Se è una bevanda (es. caffè/cappuccino), stima in base a latte/zucchero se citati; "
+                        "Se è una bevanda (es. caffè/cappuccino), considera latte/zucchero se citati; "
                         "se non citati, assumi non zuccherato e porzioni standard.\n"
-                        "Restituisci description breve e concreta.\n\n"
+                        "Restituisci description breve.\n\n"
                         f"Descrizione: {text}"
                     ),
                 }
             ],
             text={"format": _meal_schema()},
         )
-
         out = getattr(resp, "output_text", None) or ""
         data = json.loads(out)
 
         tc = max(0.0, _safe_float(data.get("total_calories", 0), 0.0))
-        desc = str(data.get("description", "") or "").strip()
+        desc = str(data.get("description", "") or "").strip() or text
         notes = str(data.get("notes", "") or "").strip()
-
-        # normalizzazione minima
-        if not desc:
-            desc = text
 
         return {"total_calories": tc, "description": desc, "notes": notes}
 
     try:
         return _retry(_call)
     except Exception as e:
-        # se qui ti torna 500 per "caffè", NON è più colpa del parsing:
-        # è perché OpenAI non ha risposto e stai andando in euristica.
         return {
             "total_calories": float(heuristic_meal_kcal(text)),
             "description": text,
@@ -161,10 +155,6 @@ def estimate_meal_from_text(text: str) -> dict:
 # WORKOUT from free text
 # ----------------------------
 def estimate_workout_from_text(text: str, weight_kg: Optional[float], height_cm: Optional[float]) -> dict:
-    """
-    Stima kcal bruciate da descrizione libera.
-    Ritorna SEMPRE dict: {calories_burned, notes}
-    """
     text = (text or "").strip()
     if not text:
         return {"calories_burned": 0.0, "notes": "Nessun testo."}
@@ -179,7 +169,6 @@ def estimate_workout_from_text(text: str, weight_kg: Optional[float], height_cm:
                     "content": (
                         "Stima le calorie bruciate dall'allenamento descritto.\n"
                         "Se mancano durata/intensità, fai assunzioni ragionevoli e scrivile in notes.\n"
-                        "Usa peso/altezza solo come supporto, se utile.\n\n"
                         f"Contesto: peso_kg={weight_kg}, altezza_cm={height_cm}\n"
                         f"Allenamento: {text}"
                     ),
@@ -187,7 +176,6 @@ def estimate_workout_from_text(text: str, weight_kg: Optional[float], height_cm:
             ],
             text={"format": _workout_schema()},
         )
-
         out = getattr(resp, "output_text", None) or ""
         data = json.loads(out)
 
@@ -198,10 +186,8 @@ def estimate_workout_from_text(text: str, weight_kg: Optional[float], height_cm:
     try:
         return _retry(_call)
     except Exception as e:
-        # fallback euristico
-        # prova a recuperare una durata in minuti se presente, altrimenti default 45
         dur = 45
-        for tok in text.replace("'", " ").replace(",", " ").split():
+        for tok in text.replace(",", " ").split():
             if tok.isdigit():
                 dur = int(tok)
                 break
@@ -215,10 +201,6 @@ def estimate_workout_from_text(text: str, weight_kg: Optional[float], height_cm:
 # FOOD PHOTO (vision)
 # ----------------------------
 def analyze_food_photo(image_bytes: bytes, mime: str, time_str: str, note: str) -> dict:
-    """
-    Analizza foto pasto con vision e stima kcal.
-    Ritorna SEMPRE dict: {total_calories, description, notes}
-    """
     if not image_bytes:
         return {"total_calories": 0.0, "description": "", "notes": "Nessuna immagine."}
 
@@ -250,24 +232,37 @@ def analyze_food_photo(image_bytes: bytes, mime: str, time_str: str, note: str) 
             ],
             text={"format": _meal_schema()},
         )
-
         out = getattr(resp, "output_text", None) or ""
         data = json.loads(out)
 
         tc = max(0.0, _safe_float(data.get("total_calories", 0), 0.0))
-        desc = str(data.get("description", "") or "").strip()
+        desc = str(data.get("description", "") or "").strip() or "Pasto (foto)"
         notes = str(data.get("notes", "") or "").strip()
-
-        if not desc:
-            desc = "Pasto (foto)"
-
         return {"total_calories": tc, "description": desc, "notes": notes}
 
     try:
         return _retry(_call)
     except Exception as e:
-        return {
-            "total_calories": 0.0,
-            "description": "Pasto (foto)",
-            "notes": _err_to_notes(e),
-        }
+        return {"total_calories": 0.0, "description": "Pasto (foto)", "notes": _err_to_notes(e)}
+
+
+# ----------------------------
+# WEEKLY PLAN (text)
+# ----------------------------
+def generate_weekly_plan(prompt: str) -> str:
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return "Prompt vuoto."
+
+    def _call():
+        client = _client()
+        resp = client.responses.create(
+            model="gpt-4.1-mini",
+            input=[{"role": "user", "content": prompt}],
+        )
+        return (getattr(resp, "output_text", None) or "").strip()
+
+    try:
+        return _retry(_call)
+    except Exception as e:
+        return f"Non riesco a generare il piano ora. Dettagli: {explain_openai_error(e)}"
