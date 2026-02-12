@@ -1,13 +1,13 @@
 import streamlit as st
-    from datetime import date, timedelta, datetime
+from datetime import date, timedelta, datetime
 
-    from db.common import safe_read_sql
-    from database import conn
-    from profile import get_profile
-    from ai import generate_weekly_plan, explain_openai_error
-    from utils import iso_year_week, bmr_mifflin, tdee_from_level, heuristic_workout_kcal
+from db.common import safe_read_sql
+from database import conn
+from profile import get_profile
+from ai import generate_weekly_plan, explain_openai_error
+from utils import iso_year_week, bmr_mifflin, tdee_from_level, heuristic_workout_kcal
 
-    def _daily_target_kcal(profile: dict, rest_kcal: float) -> float:
+def _daily_target_kcal(profile: dict, rest_kcal: float) -> float:
         goal_type = str(profile.get("goal_type") or "mantenimento").lower()
         if "dimagr" in goal_type or "deficit" in goal_type:
             return max(rest_kcal - 500, 1200)
@@ -15,7 +15,7 @@ import streamlit as st
             return rest_kcal + 250
         return rest_kcal
 
-    def _apply_plan_to_calendar(user_id: int, week_start: date, plan_text: str, workout_slots):
+def _apply_plan_to_calendar(user_id: int, week_start: date, plan_text: str, workout_slots):
         prof = get_profile(user_id) or {}
         weight = float(prof.get("start_weight") or 75.0)
         height = float(prof.get("height_cm") or 175.0)
@@ -75,7 +75,7 @@ import streamlit as st
                 )
         conn.commit()
 
-    def render(user_id: int):
+def render(user_id: int):
         st.header("🧠 Piano settimanale → Inserisci nel calendario (previsto)")
 
         today = date.today()
