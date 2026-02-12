@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("informa.db")  # su Streamlit Cloud resta nel container (persistenza limitata)
+DB_PATH = Path("informa.db")  # su Streamlit Cloud persistenza limitata
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 conn.execute("PRAGMA foreign_keys = ON")
 conn.row_factory = sqlite3.Row
@@ -100,11 +100,11 @@ def init_db():
         user_id INTEGER,
         date TEXT,
         time TEXT,
-        type TEXT,                 -- meal | workout
+        type TEXT,
         title TEXT,
         expected_calories REAL,
         duration_min INTEGER,
-        status TEXT DEFAULT 'planned',  -- planned | done
+        status TEXT DEFAULT 'planned',
         notes TEXT,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )
@@ -124,4 +124,7 @@ def init_db():
     """)
 
     conn.commit()
-    init_db()
+
+
+# ✅ IMPORTANTISSIMO: crea tabelle appena il modulo viene importato
+init_db()

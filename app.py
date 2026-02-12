@@ -1,7 +1,7 @@
 import streamlit as st
-from datetime import date
 
 from styles import load_styles
+from database import init_db
 from auth_utils import create_user, verify_login
 from profile import profile_page, profile_complete
 from router import render as route_render
@@ -11,12 +11,11 @@ def main():
     st.set_page_config(page_title="InForma", layout="wide")
     load_styles()
 
+    # ✅ DB pronto subito
+    init_db()
+
     if "user_id" not in st.session_state:
         st.session_state.user_id = None
-    if "page" not in st.session_state:
-        st.session_state.page = "Dashboard"
-    if "selected_date" not in st.session_state:
-        st.session_state.selected_date = date.today()
 
     # --------------------
     # LOGIN / REGISTER
@@ -59,22 +58,7 @@ def main():
         return
 
     # --------------------
-    # SIDEBAR NAV
-    # --------------------
-    with st.sidebar:
-        st.title("InForma")
-        # Note: Giornata is reachable via Calendario, but keep it selectable for debugging.
-        options = ["Dashboard", "Calendario", "Giornata", "Piano settimanale", "Profilo"]
-        page = st.radio("Menu", options, index=options.index(st.session_state.page) if st.session_state.page in options else 0)
-        st.session_state.page = page
-
-        st.divider()
-        if st.button("Logout"):
-            st.session_state.user_id = None
-            st.rerun()
-
-    # --------------------
-    # ROUTING
+    # ROUTER
     # --------------------
     route_render(uid)
 
