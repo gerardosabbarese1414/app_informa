@@ -1,4 +1,5 @@
 import streamlit as st
+from datetime import date
 import inspect
 
 from views.dashboard import render as dashboard_render
@@ -15,24 +16,56 @@ PAGES = {
     "Profilo": profile_page,
 }
 
-def _call_page(fn, user_id: int):
-    """Chiama fn() o fn(user_id) a seconda della firma."""
+
+def _call_page(fn, user_id: int, selected_name: str):
+    """
+    Chiama la pagina in modo robusto.
+    - Per 'Giornata': prova (user_id, date) poi fallback.
+    - Per le altre: prova (user_id), poi fallback a ().
+    """
+    # Caso speciale: Giornata spesso richiede anche una data
+    if selected_name == "Giornata":
+        d = st.session_state.get("selected_date", date.today())
+
+        # prova firma (user_id, d)
+        try:
+            return fn(user_id, d)
+        except TypeError:
+            pass
+
+        # fallback: (user_id)
+        try:
+            return fn(user_id)
+        except TypeError:
+            pass
+
+        # fallback: (d)
+        try:
+            return fn(d)
+        except TypeError:
+            pass
+
+        # fallback: ()
+        return fn()
+
+    # Default: prova (user_id) poi ()
     try:
         sig = inspect.signature(fn)
         n_params = len(sig.parameters)
     except Exception:
-        # fallback: prova con user_id
         n_params = 1
 
     if n_params == 0:
         return fn()
-    else:
-        return fn(user_id)
+    return fn(user_id)
+
 
 def render(user_id: int):
+    # default pagina
     if "page" not in st.session_state:
         st.session_state.page = "Dashboard"
 
+    # Sidebar menu
     st.sidebar.title("InForma")
     keys = list(PAGES.keys())
 
@@ -47,6 +80,9 @@ def render(user_id: int):
     if st.sidebar.button("Logout"):
         st.session_state.user_id = None
         st.session_state.page = "Dashboard"
+        # opzionale: pulizia di stato
+        st.session_state.pop("selected_date", None)
         st.rerun()
 
-    _call_page(PAGES[selected], user_id)
+    # Render pagina scelta
+    _call_page(PAGES[selected], user_id, selected)
